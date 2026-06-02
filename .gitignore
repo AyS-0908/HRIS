@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+auth.json
+credentials.json
+secrets.json
+
+# Build / OS
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db

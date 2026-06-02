@@ -1,0 +1,41 @@
+# Simple AI-powered Recruitment tool for SMB
+
+## Tech Stack:
+- GSheets, GDrive, GDoc, GForms
+- Chatbot (Claude?) MCPs if required
+- Apps script if required OR/AND **internal MCP**.
+
+## Workflow (draft)
+
+- Chatbot: [user request of recruitment].
+
+- Chatbot or Form: [questions about the need].
+
+- AI backstage: [use [unclear/crossed-out] answers + job desc. template to output a job desc. -> store in Google Drive -> provide URL to user]
+
+- [crossed-out] Chatbot: [request user sign-off status (validated, draft)]
+
+- AI Backstage: [create row in a Google Sheet with JD URL, key info, status + email or "slack-like" message to HR].
+
+- Google Sheets: [HR team validates + select where to post/send the JD].
+
+- Workflow & AI backstage: [JD is posted + sent by email if selected] [A form for candidate is available].
+
+- Candidates answer form -> Google Sheets fed + CV stored in G. Drive.
+
+- AI pre-analyzes the CV -> pre-recommend (Reject/Approve/Arbitrate) ->
+
+2
+
+- HR team validate candidates to meet.
+
+- A.I prepares draft mail, customized per candidate -> HR validate -> workflow sends the mail (from an HR mailbox).
+
+- A.I scans HR mailbox answers -> prepare draft mail + meetings invitation -> warns HR team.
+
+- Once appointment approved or rejected, workflow update gSheets + validates calendar meeting.
+
+- For approved appointments, AI prepares the pros/cons of application (CV vs Job Desc), and questions to ask.
+
+- AI reviews comments/interview, fact-checks against JD, proposes ranking -
+

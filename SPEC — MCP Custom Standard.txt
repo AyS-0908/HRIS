@@ -1,0 +1,664 @@
+# SPEC — MCP Custom Standard
+
+## 1. Objective
+
+Build a reusable **Custom MCP Server Standard** allowing business-process modules to be plugged in per domain: HR, Sales, Finance, Operations, etc.
+
+The server must expose MCP tools to AI chatbots and route each tool execution to deterministic backend services, APIs, or workflows.
+
+
+**Client onboarding / deployment flow:**
+
+New client
+→ Deploy / configure the MCP Custom Standard
+→ Set up the company: users, roles, permissions, Google Drive/Sheets/Docs/Gmail
+→ Enable the necessary business modules: HR, Sales, etc.
+→ Define business processes: recruitment, training, sales pipeline, etc.
+→ Add/configure business tools
+→ Test with Claude / ChatGPT-compatible MCP client
+→ Client starts using the system.
+
+**Example in HR:**
+
+V1 should start with one modular HR MCP server:
+
+```
+HR MCP
+→ recruitment
+→ training
+→ performance
+→ HR self-service
+→ HR knowledge base
+```
+
+If isolation becomes necessary, the HR MCP can later be split by exposure level:
+
+```
+MCP HR Self-Service
+→ accessible to employees and managers
+→ HR enquiries, recruitment requests, training requests
+
+MCP HR Operations
+→ accessible to HR and HR Directors
+→ recruitment processing, performance management, approvals, sensitive reporting
+```
+
+## 2. Target Architecture
+
+```text
+AI Chatbot
+→ MCP Custom Standard Server
+→ Core Layer
+→ Business Process Modules
+→ Connectors / Gateways
+→ External Systems
+```
+
+## 3. Technical Stack
+
+```yaml
+language: TypeScript
+runtime: Node.js
+deployment: Docker
+hosting_target: Coolify-compatible VPS
+source_control: GitHub
+config_format: YAML + ENV
+validation: Zod or equivalent
+logging: structured JSON logs
+testing: unit + integration + contract tests
+```
+
+## 4. Repository Structure
+
+```text
+mcp-custom-standard/
+├─ src/
+│  ├─ server/
+│  │  ├─ index.ts
+│  │  ├─ mcpServer.ts
+│  │  └─ transport.ts
+│  ├─ core/
+│  │  ├─ auth/
+│  │  ├─ config/
+│  │  ├─ logging/
+│  │  ├─ errors/
+│  │  ├─ permissions/
+│  │  ├─ validation/
+│  │  └─ maintenance/
+│  ├─ modules/
+│  │  ├─ _template/
+│  │  ├─ hr/
+│  │  └─ sales/
+│  ├─ connectors/
+│  │  ├─ google/
+│  │  ├─ http/
+│  │  └─ webhook/
+│  ├─ registry/
+│  │  ├─ moduleRegistry.ts
+│  │  └─ toolRegistry.ts
+│  └─ shared/
+│     ├─ types/
+│     └─ utils/
+├─ config/
+│  ├─ company.example.yaml
+│  ├─ modules.example.yaml
+│  └─ permissions.example.yaml
+├─ tests/
+│  ├─ unit/
+│  ├─ integration/
+│  └─ contract/
+├─ scripts/
+│  ├─ create-module.ts
+│  ├─ check-standard.ts
+│  └─ upgrade-standard.ts
+├─ Dockerfile
+├─ package.json
+├─ .env.example
+└─ README.md
+```
+
+## 5. Core Responsibilities
+
+The core layer must provide:
+
+```text
+MCP server bootstrap
+Tool registration
+Module loading
+Input validation
+Permission checks
+Authentication
+Structured logging
+Error normalization
+Health checks
+Version reporting
+Maintenance checks
+Connector abstraction
+```
+
+## 6. Business Process Runtime Requirements
+
+The MCP standard must support business processes composed of multiple steps, human validations, side effects, and persistent statuses.
+
+This layer is required to plug domain processes such as HR recruitment, sales pipeline, finance approval, onboarding, or support workflows.
+
+### 6.1 Process Model
+
+Each business process must define:
+
+```yaml
+process_id: stable_process_identifier
+domain: hr | sales | finance | operations | other
+name: human_readable_process_name
+version: semantic_version
+steps: ordered_business_steps
+statuses: allowed_status_values
+roles: allowed_user_roles
+audit_required: true
+```
+
+A process is not equal to a single MCP tool.
+
+Rules:
+
+```text
+One process = one coherent business workflow.
+One MCP tool = one stable business action inside or across the process.
+Human decision steps must remain explicit statuses, not hidden AI actions.
+All side-effect steps must be auditable.
+```
+
+### 6.2 State and Status Management
+
+The standard must support persistent process state.
+
+Minimum state fields:
+
+```yaml
+process_instance_id: string
+process_id: string
+company_id: string
+current_status: string
+current_step: string
+created_by: string
+created_at: datetime
+updated_at: datetime
+last_tool_called: string
+external_references: object
+audit_log_id: string
+```
+
+State can be stored in an external system such as Google Sheets, database, or business application.
+
+The MCP standard must not hardcode the storage backend.
+
+### 6.3 Human Validation Checkpoints
+
+The standard must support explicit human validation checkpoints.
+
+Examples:
+
+```text
+manager_validates_job_description
+hr_validates_distribution_channels
+hr_validates_candidate_analysis
+manager_validates_interview_notes
+finance_validates_expense_request
+sales_validates_proposal_before_send
+```
+
+Rules:
+
+```text
+AI can prepare recommendations.
+AI must not silently approve human decision steps.
+Validation status must be stored.
+Validation actor must be logged.
+Validation timestamp must be logged.
+```
+
+### 6.4 Process-Aware Tool Design
+
+Tools must be designed around stable business actions, not raw technical steps.
+
+Example:
+
+```text
+Good:
+submit_job_request
+generate_distribution_kit
+analyze_candidate_application
+prepare_interview_brief
+update_candidate_status
+
+Bad:
+write_row
+send_http_request
+create_file
+parse_text
+call_google_api
+```
+
+Each process-aware tool must declare:
+
+```yaml
+tool_name: string
+process_id: string
+allowed_statuses_before_execution: string[]
+status_after_success: string
+required_role: string
+side_effects:
+  - create_document
+  - update_sheet
+  - send_email
+  - create_calendar_event
+audit_level: none | standard | strict
+```
+
+### 6.5 Google Workspace Process Connectors
+
+The standard must include connector abstractions for Google Workspace process execution.
+
+Minimum connector capabilities:
+
+```text
+Google Drive: read files, search folders, store documents
+Google Docs: create documents from templates, update placeholders
+Google Sheets: read rows, append rows, update statuses
+Google Forms: create or reference forms, collect application data
+Gmail: create drafts, send validated emails
+Google Calendar: create events, update events
+```
+
+Connectors must be called through services, never directly from tool handlers.
+
+### 6.6 Audit Log Requirements
+
+Every process action must write an audit event.
+
+Minimum audit event fields:
+
+```yaml
+audit_log_id: string
+timestamp: datetime
+company_id: string
+process_id: string
+process_instance_id: string
+tool_name: string
+actor_role: string
+actor_identifier: string
+input_summary: object
+external_outputs: object
+status_before: string
+status_after: string
+result: success | error
+error_code: string | null
+```
+
+The audit log must support later troubleshooting, compliance review, and process reconstruction.
+
+### 6.7 Module Requirements for Business Processes
+
+A module that implements a business process must include:
+
+```text
+modules/{domain}/{process}/
+├─ process.config.ts
+├─ process.statuses.ts
+├─ tools/
+├─ schemas/
+├─ services/
+├─ mappings/
+├─ permissions/
+├─ audit/
+└─ tests/
+```
+
+Required exports:
+
+```text
+processDefinition
+statusModel
+toolDefinitions
+permissionRules
+storageBindings
+auditRules
+healthCheck
+```
+
+### 6.8 Acceptance Criteria
+
+The implementation is complete when:
+
+```text
+A business process can be registered.
+A process can expose multiple MCP tools.
+Each tool can validate allowed input statuses.
+Each tool can update process status after execution.
+Human validation steps can be represented as statuses.
+Side effects are logged.
+Audit events are generated.
+Storage backend is abstracted.
+At least one sample HR recruitment process is implemented.
+At least one non-HR sample process is implemented.
+```
+
+
+## 7. Business Module Contract
+
+Each business module must follow the same structure:
+
+```text
+modules/{domain}/
+├─ module.config.ts
+├─ tools/
+├─ schemas/
+├─ services/
+├─ mappings/
+├─ permissions/
+└─ tests/
+```
+
+Each module must export:
+
+```text
+moduleName
+moduleVersion
+toolDefinitions
+schemas
+permissionRules
+serviceBindings
+healthCheck
+```
+
+## 8. Tool Contract
+
+Each MCP tool must define:
+
+```yaml
+name: stable_machine_readable_name
+description: short_action_oriented_description
+input_schema: strict_json_schema
+permission_scope: required_business_permission
+handler: deterministic_service_function
+returns:
+  status: success | error
+  data: object
+  audit: object
+```
+
+Rules:
+
+```text
+One tool = one business action.
+Avoid technical tools exposed to the chatbot.
+Prefer coarse-grained business tools over many micro-tools.
+All inputs must be validated before execution.
+All executions must be logged.
+All side-effect actions must return traceable IDs.
+```
+
+## 9. Example Business Modules
+
+### HR Module
+
+```text
+hr/
+├─ recruitment/
+│  ├─ submit_job_request
+│  ├─ create_job_description_doc
+│  ├─ append_jobdesc_row
+│  └─ send_hr_notification
+├─ knowledge_base/
+│  ├─ search_hr_knowledge_base
+│  └─ answer_hr_policy_question
+└─ onboarding/
+   ├─ create_onboarding_plan
+   └─ send_onboarding_email
+```
+
+### Sales Module
+
+```text
+sales/
+├─ lead_management/
+│  ├─ create_lead
+│  ├─ qualify_lead
+│  └─ update_crm_row
+├─ proposal/
+│  ├─ generate_proposal_doc
+│  └─ send_proposal_email
+└─ reporting/
+   └─ summarize_pipeline
+```
+
+## 10. Company Configuration
+
+Each company must be configured without changing core code.
+
+```yaml
+company:
+  id: acme
+  name: Acme Corp
+  enabled_modules:
+    - hr.recruitment
+    - hr.knowledge_base
+    - sales.lead_management
+
+permissions:
+  roles:
+    - hr_admin
+    - manager
+    - employee
+    - sales_admin
+
+resources:
+  google_drive:
+    hr_knowledge_folder_id: ""
+    sales_templates_folder_id: ""
+  google_sheets:
+    hr_recruitment_sheet_id: ""
+    sales_pipeline_sheet_id: ""
+  google_docs:
+    job_description_template_id: ""
+    proposal_template_id: ""
+```
+
+## 11. Connectors
+
+Connectors must be isolated from business logic.
+
+Minimum connectors:
+
+```text
+Google Drive connector
+Google Docs connector
+Google Sheets connector
+Gmail connector
+Generic HTTP connector
+Webhook connector
+```
+
+Each connector must expose stable methods and hide provider-specific details from modules.
+
+## 12. Security Requirements
+
+```text
+Reject unauthenticated requests.
+Check permissions before tool execution.
+Validate all inputs.
+Do not expose secrets in logs.
+Store secrets in environment variables.
+Support per-company config.
+Support tool-level permission scopes.
+Log all side-effect actions.
+Return safe errors to chatbot.
+Keep internal stack traces server-side only.
+```
+
+## 13. Maintenance Standard
+
+The project must include a maintenance subsystem.
+
+### Required maintenance files
+
+```text
+core/maintenance/
+├─ version.ts
+├─ dependencyCheck.ts
+├─ mcpCompatibilityCheck.ts
+├─ connectorHealthCheck.ts
+├─ moduleHealthCheck.ts
+└─ maintenanceReport.ts
+```
+
+### Required maintenance scripts
+
+```text
+npm run check:standard
+npm run check:modules
+npm run check:connectors
+npm run check:security
+npm run test:contract
+npm run report:maintenance
+```
+
+### Maintenance report output
+
+```json
+{
+  "standardVersion": "x.y.z",
+  "mcpCompatibility": "ok | warning | error",
+  "dependencies": "ok | warning | error",
+  "connectors": "ok | warning | error",
+  "modules": "ok | warning | error",
+  "security": "ok | warning | error",
+  "blockingIssues": [],
+  "recommendedActions": []
+}
+```
+
+## 14. Standard Upgrade Policy
+
+The core standard must be versioned independently from business modules.
+
+```text
+core version: semantic versioning
+module version: semantic versioning
+breaking changes: forbidden without migration notes
+deprecated functions: keep for one minor version
+```
+
+Add a `STANDARD_CHANGELOG.md` file.
+
+Each upgrade must verify:
+
+```text
+MCP server still starts
+All tools are registered
+All schemas are valid
+All module tests pass
+All connector health checks pass
+Docker image builds
+```
+
+## 15. Module Generator
+
+Provide a script to generate a new business module.
+
+Command target:
+
+```text
+create-module --domain hr --module recruitment
+create-module --domain sales --module lead_management
+```
+
+Generated output:
+
+```text
+module.config.ts
+tools/example.tool.ts
+schemas/example.schema.ts
+services/example.service.ts
+permissions/example.permissions.ts
+tests/example.test.ts
+README.md
+```
+
+## 16. Default Core Tools
+
+Expose only these core tools by default:
+
+```text
+health_check
+list_available_business_tools
+get_standard_version
+```
+
+Do not expose maintenance, secrets, logs, or internal diagnostics as chatbot tools unless explicitly enabled in admin mode.
+
+## 17. Deployment Requirements
+
+The project must be deployable as a Docker app.
+
+Required environment variables:
+
+```env
+NODE_ENV=
+PORT=
+MCP_SERVER_PUBLIC_URL=
+AUTH_MODE=
+API_KEY=
+COMPANY_CONFIG_PATH=
+LOG_LEVEL=
+```
+
+Optional provider variables:
+
+```env
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_SERVICE_ACCOUNT_JSON=
+APPS_SCRIPT_WEBHOOK_URL=
+```
+
+## 18. Acceptance Criteria
+
+The implementation is complete when:
+
+```text
+Server starts locally.
+Server starts in Docker.
+Claude-compatible MCP client can discover tools.
+Core tools work.
+A new module can be generated from script.
+A sample HR tool can be registered and executed.
+A sample Sales tool can be registered and executed.
+Inputs are validated.
+Unauthorized calls are rejected.
+Tool calls are logged.
+Maintenance report runs.
+Contract tests pass.
+README explains local run, Docker run, module creation, and deployment.
+```
+
+## 19. First Implementation Scope
+
+Build only:
+
+```text
+Core MCP server
+Module registry
+Tool registry
+Auth API key mode
+Structured logs
+Module generator
+Maintenance report
+Google connector skeleton
+HR sample module with one tool
+Sales sample module with one tool
+Docker deployment
+Tests
+```
+
+Do not implement full OAuth, UI, admin dashboard, billing, multi-tenant database, or complex workflow editor in this version.
