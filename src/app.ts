@@ -1,6 +1,6 @@
 // Composition root: wires config, modules, registries, connectors, storage, runtime.
 // Nothing here is edited to onboard a company or add a module (SPEC §0).
-import type { Connectors, Logger, ModuleContract } from "./shared/types/contracts.js";
+import type { Connectors, Logger, ModuleContract, StorageAdapter } from "./shared/types/contracts.js";
 import { createLogger } from "./core/logging/logger.js";
 import { CompanyRegistry, loadCompanyConfig } from "./core/config/loadCompany.js";
 import { resolveEnabledModules } from "./core/config/loadModules.js";
@@ -31,7 +31,7 @@ export interface App {
   tools: ToolRegistry;
   processes: ProcessRegistry;
   connectors: Connectors;
-  storage: InMemoryStorageAdapter;
+  storage: StorageAdapter; // interface, not the concrete impl — lets the backend be swapped
   runtime: ProcessRuntime;
   // Business tools enabled for a given company (filtered by enabledModules).
   enabledToolsFor(companyId: string): ResolvedTool[];

@@ -30,8 +30,10 @@ read-back. Next optional step is a Sheets `StorageAdapter` (process state in She
 
 ## Next Action
 
-Optional: Sheets `StorageAdapter` (persist process state in Sheets), or a second non-HR
-module to further exercise reusability.
+Start in a **fresh session** (this one is long/compacted). Pick one:
+- Sheets `StorageAdapter` (§15.11): persist process state in Sheets via the existing adapter
+  interface — no core edits.
+- A second non-HR module (§15.12) via `_template` + `create-module`, to further prove reusability.
 
 ## Last Verification
 
@@ -52,10 +54,6 @@ module to further exercise reusability.
 - `scripts/live-sheets-smoke-test.mjs` (`npm run smoke:live`) reads `.env` (with its own
   multi-line JSON parser), runs the full flow via `app.runtime`, then re-reads the appended
   range and checks the row values.
-- Architecture option reviewed: a Codex Skill can bundle scripts, but it should not replace
-  the MCP runtime — the spec requires remote MCP transport, identity, permissions, status
-  gates, idempotency, audit, module contracts, and client-facing tool discovery. Skill
-  scripts are useful as developer/admin helpers around the MCP.
 
 ## Known Risks
 

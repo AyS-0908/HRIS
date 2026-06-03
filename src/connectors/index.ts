@@ -16,7 +16,9 @@ export interface ConnectorOptions {
 export function buildConnectors(logger: Logger, options: ConnectorOptions): Connectors {
   const liveSheets = options.googleMode === "live";
   if (liveSheets && !options.serviceAccountJson) {
-    throw new Error("GOOGLE_CONNECTORS=live requires GOOGLE_SERVICE_ACCOUNT_JSON");
+    throw new Error(
+      "GOOGLE_CONNECTORS=live requires a service account (set GOOGLE_SERVICE_ACCOUNT_JSON_FILE or GOOGLE_SERVICE_ACCOUNT_JSON)",
+    );
   }
   return {
     docs: createDocsConnector(logger), // simulated in V1

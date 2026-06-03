@@ -16,10 +16,10 @@ export function createSheetsConnectorLive(logger: Logger, serviceAccountJson: st
   try {
     creds = JSON.parse(serviceAccountJson) as ServiceAccount;
   } catch {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is not valid JSON");
+    throw new Error("service account JSON is not valid JSON");
   }
   if (!creds.client_email || !creds.private_key) {
-    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON missing client_email/private_key");
+    throw new Error("service account JSON missing client_email/private_key");
   }
   const client = new JWT({ email: creds.client_email, key: creds.private_key, scopes: SCOPES });
 

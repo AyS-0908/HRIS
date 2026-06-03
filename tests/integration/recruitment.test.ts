@@ -2,7 +2,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildApp, type App } from "../../src/app.js";
 import type { RequestContext } from "../../src/shared/types/contracts.js";
+import { InMemoryStorageAdapter } from "../../src/storage/inMemoryAdapter.js";
 import { AppError } from "../../src/core/errors/appError.js";
+
+// `auditFor` is an inspection helper on the in-memory impl, not on the StorageAdapter
+// interface. V1 always wires the in-memory adapter, so narrowing here is safe.
+const auditFor = (app: App, instanceId: string) =>
+  (app.storage as InMemoryStorageAdapter).auditFor(instanceId);
 
 const ctx = (role: string, actorId = "u1"): RequestContext => ({
   companyId: "acme",
@@ -66,7 +72,7 @@ describe("hr.recruitment Fiche poste", () => {
     expect(approve.data.status).toBe("approved");
     expect(approve.data.rowId).toBeTruthy();
 
-    const audit = app.storage.auditFor(instanceId);
+    const audit = auditFor(app, instanceId);
     expect(audit.length).toBe(3);
     expect(audit.at(-1)?.statusAfter).toBe("approved");
   });
@@ -138,6 +144,6 @@ describe("hr.recruitment Fiche poste", () => {
     });
     expect(second.data.docId).toBe(first.data.docId);
     // submit + first generate audited; the idempotent short-circuit emits no new audit
-    expect(app.storage.auditFor(id).length).toBe(2);
+    expect(auditFor(app, id).length).toBe(2);
   });
 });

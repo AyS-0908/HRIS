@@ -3,10 +3,10 @@
 Compact log of decisions/changes not in SPEC.md. AI-native, terse.
 
 ## Spec deltas (V1 scope, user-approved)
-- §15.11: running storage path = InMemory/JSON adapter, NOT Sheets. "Swappable via StorageAdapter" satisfied; Sheets reference impl deferred (until Google creds).
+- §15.11: running STORAGE path = InMemory adapter, NOT Sheets. "Swappable via StorageAdapter" satisfied; a Sheets storage impl is deferred work (not blocked — the live Sheets *connector* already works, see "Post-V1" below).
 - §15.12: no non-HR sample in V1. Reusability proven via `_template` + `scripts/create-module.ts`.
 - HR scope = "Fiche poste" only (steps 1.1–1.3): tools `submit_job_request`, `generate_job_description`, `approve_job_description`. publish/candidates deferred.
-- Google writes (GDoc, rec_jobDesc row) = simulated; connectors return trace ids. Real Google wired later.
+- Google writes: GDoc/Drive = simulated (trace ids). Sheets `rec_jobDesc` row = LIVE-capable since 2026-06-03 (`GOOGLE_CONNECTORS=live`); simulated remains the default. See "Post-V1 — live Google Sheets".
 
 ## Decisions not in spec
 - Creator tools (those that start an instance) are identified by `allowedStatusesBefore: []`. The runtime then creates the instance at `statusAfterSuccess` instead of loading+gating. Non-creator tools require `processInstanceId` in their input.

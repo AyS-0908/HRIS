@@ -12,7 +12,7 @@ A reusable MCP server. Core code is generic; business logic plugs in as **module
 - `registry/`: discovers and registers modules, tools, processes.
 - `modules/{domain}/{process}/`: business logic (tools, schemas, services, permissions). `_template` is the scaffold source.
 - `connectors/`: provider-neutral surface to external systems (google/* , http, webhook).
-- `storage/`: `StorageAdapter` interface + Sheets reference impl.
+- `storage/`: the `StorageAdapter` interface (declared in `shared/types/contracts.ts`) and the running impl `inMemoryAdapter.ts`. A Sheets reference impl is deferred.
 - `config/`: per-company YAML wiring, validated by zod.
 
 ## Data flow
@@ -21,11 +21,11 @@ A reusable MCP server. Core code is generic; business logic plugs in as **module
 2. `core/auth` resolves `RequestContext` (companyId, actorId, actorRole, apiKeyId).
 3. `processRuntime` runs the fixed order: auth → permission → validate input → status gate → idempotency → handler → status update → audit.
 4. Handler calls a module **service**; the service calls a **connector**. Handlers never call connectors directly.
-5. State + audit persisted through `StorageAdapter` (Sheets impl in V1).
+5. State + audit persisted through `StorageAdapter` (InMemory impl in V1).
 
 ## External dependencies
 
-- Google connectors (drive, docs, sheets, gmail, forms, calendar): V1 = provider-neutral skeletons; only Sheets is a working path.
+- Google connectors (drive, docs, sheets): V1 = provider-neutral skeletons; only Sheets has a live path (the rest are simulated).
 - Generic connectors: http, webhook.
 - Deploy target: Docker / Coolify VPS.
 
