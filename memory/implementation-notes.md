@@ -1,9 +1,12 @@
 # Implementation Notes — MCP Custom Standard V1
 
+Authoritative target: `SPEC.md` §15. (The hygiene plan `cr-e-le-plan-de-pure-puddle.md` is
+complete/superseded; its deferred items — Sheets storage, connector skeletons — are done.)
+
 Compact log of decisions/changes not in SPEC.md. AI-native, terse.
 
 ## Spec deltas (V1 scope, user-approved)
-- §15.11: running STORAGE path = InMemory adapter, NOT Sheets. "Swappable via StorageAdapter" satisfied; a Sheets storage impl is deferred work (not blocked — the live Sheets *connector* already works, see "Post-V1" below).
+- §15.11: DONE (2026-06-03). `SheetsStorageAdapter` persists `ProcessState` to `proc_state` tab and `AuditEvent` to `proc_audit` tab via Sheets REST API. Shared auth in `connectors/google/auth.ts`. Selected via `STORAGE_BACKEND=sheets` in `storage/index.ts` factory — runtime untouched. Default remains InMemory.
 - §15.12: no non-HR sample in V1. Reusability proven via `_template` + `scripts/create-module.ts`.
 - HR scope = "Fiche poste" only (steps 1.1–1.3): tools `submit_job_request`, `generate_job_description`, `approve_job_description`. publish/candidates deferred.
 - Google writes: GDoc/Drive = simulated (trace ids). Sheets `rec_jobDesc` row = LIVE-capable since 2026-06-03 (`GOOGLE_CONNECTORS=live`); simulated remains the default. See "Post-V1 — live Google Sheets".

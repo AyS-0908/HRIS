@@ -46,8 +46,9 @@ npm run test:contract       # contract assertions only
 npm run create-module -- --domain sales --module lead_management
 ```
 
-Scaffolds `src/modules/sales/lead_management/` from `_template`. Then add the module
-to `ALL_MODULES` in [src/app.ts](src/app.ts) and enable it in a company config.
+Scaffolds `src/modules/sales/lead_management/` from `_template`. Then register it in
+the `ALL_MODULES` manifest ([src/modules/index.ts](src/modules/index.ts)) and enable it
+in a company config — core code stays untouched.
 
 ## Standard checks
 
@@ -80,6 +81,28 @@ Then `npm run build && node --env-file=.env dist/server/index.js`.
 
 Only the Sheets connector goes live; Docs/Drive remain simulated until wired.
 
+## Sheets storage backend (optional)
+
+By default process state + audit live in the in-memory `StorageAdapter`. To persist
+them in Google Sheets instead (SPEC §4.2 / §15.11), reusing the same service account
+and the company's recruitment spreadsheet:
+
+1. Complete the live Sheets setup above (service account + shared spreadsheet).
+2. Add two tabs to that spreadsheet, each with a header row (row 1):
+   - **`proc_state`** — `processInstanceId | processId | companyId | currentStatus | currentStep | createdBy | createdAt | updatedAt | lastToolCalled | externalReferences | auditLogId`
+   - **`proc_audit`** — `auditLogId | timestamp | companyId | processId | processInstanceId | toolName | actorRole | actorId | inputSummary | externalOutputs | statusBefore | statusAfter | result | errorCode`
+3. In `.env` set `STORAGE_BACKEND=sheets` (requires the service account + a configured
+   `resources.googleSheets.hrRecruitmentSheetId`).
+
+```bash
+STORAGE_BACKEND=sheets
+GOOGLE_SERVICE_ACCOUNT_JSON_FILE=service-account.json
+```
+
+The backend is selected at the composition root only — the runtime depends solely on the
+`StorageAdapter` interface, so no core code changes. `externalReferences`, `inputSummary`,
+and `externalOutputs` are stored as JSON in a single cell.
+
 ## Docker / Coolify
 
 ```bash
@@ -93,6 +116,6 @@ docker run -p 3000:3000 \
 ## V1 scope notes
 
 - HR sample = "Fiche poste" (job description) process: `submit_job_request` → `generate_job_description` → `approve_job_description`.
-- Storage runs through the in-memory `StorageAdapter` (swappable); the Google Sheets reference impl is deferred.
-- Google connectors are simulated skeletons (no real Google calls in V1).
+- Storage runs through a `StorageAdapter`: in-memory by default, or the Google Sheets reference impl via `STORAGE_BACKEND=sheets` (swappable without core edits).
+- Google connectors are simulated by default; the Sheets connector supports live writes via `GOOGLE_CONNECTORS=live` (see above).
 - See [memory/implementation-notes.md](memory/implementation-notes.md) for spec deltas.

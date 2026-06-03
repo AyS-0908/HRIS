@@ -2,23 +2,32 @@
 
 Last updated: 2026-06-03
 
+
 ## Current Objective
+
+Authoritative checklist: `SPEC.md` §15. (The hygiene plan
+`C:\Users\aymar\.claude\plans\cr-e-le-plan-de-pure-puddle.md` is complete and superseded —
+the Sheets storage and connector skeletons it deferred are now implemented.)
 
 V1 + live Google Sheets connector implemented **and verified end-to-end** against the
 real test sheet: `approve_job_description` appends a real `rec_jobDesc` row, confirmed by
-read-back. Next optional step is a Sheets `StorageAdapter` (process state in Sheets).
+read-back. The Sheets `StorageAdapter` (§4.2 / §15.11) is now implemented: process state +
+audit persist to `proc_state` / `proc_audit` tabs, selected via `STORAGE_BACKEND=sheets`,
+no core edits. Next optional step is a second non-HR module (§15.12).
 
 ## Done
 
 - Spec + harness: `SPEC.md`, `AGENTS.md`, `Architecture.md`, `CLAUDE.md`.
 - V1 core: streamable HTTP MCP server (stateless), 3 core tools, identity/auth, closed error model.
 - Engine: all SPEC §4 contracts, process runtime (§5 order), InMemory storage adapter, idempotency store, module/tool/process registries, module validation.
-- Connectors: provider-neutral simulated skeletons (docs, sheets, drive, http, webhook) + live Sheets connector.
+- Connectors: provider-neutral simulated skeletons (docs, sheets, drive, gmail, forms, calendar, http, webhook) + live Sheets connector.
+- Storage: in-memory adapter (default) + Google Sheets `StorageAdapter` reference impl (§15.11), shared service-account auth (`connectors/google/auth.ts`), selected by `STORAGE_BACKEND` via `storage/index.ts` factory — runtime untouched.
 - HR module `hr.recruitment` (Fiche poste): `submit_job_request` → `generate_job_description` → `approve_job_description`.
 - Reusability: `_template` + `create-module` (scaffolds a runnable module, verified then removed).
 - Tooling: `check-standard`, `report-maintenance`, contract tests, integration tests, `smoke:live`.
 - Deploy: Dockerfile (Coolify), README.
 - **Live Google Sheets verified**: real `rec_jobDesc` rows written and re-read on the test sheet.
+- Audit-of-audit pass (2026-06-03): fixed idempotency scope (now per-instance), removed redundant handler re-validation, corrected creator-failure audit status, aligned audit sentinel, typed Sheets adapter errors as `CONNECTOR_ERROR`, documented unbounded idempotency store. Drop-in wiring: module manifest `src/modules/index.ts` (no app.ts edit per module) + comma-separated `COMPANY_CONFIG_PATH`. Added gmail/forms/calendar skeleton connectors (§3/§8). Deferred: §11 `publish_job_opening` / `update_candidate_status` (2 of 5 sample tools still unimplemented).
 
 ## In Progress
 
@@ -30,14 +39,15 @@ read-back. Next optional step is a Sheets `StorageAdapter` (process state in She
 
 ## Next Action
 
-Start in a **fresh session** (this one is long/compacted). Pick one:
-- Sheets `StorageAdapter` (§15.11): persist process state in Sheets via the existing adapter
-  interface — no core edits.
+Start in a **fresh session** (this one is long/compacted):
 - A second non-HR module (§15.12) via `_template` + `create-module`, to further prove reusability.
 
 ## Last Verification
 
 - Date: 2026-06-03
+- Sheets StorageAdapter: `npm run typecheck` (ok); `npm test` (13 pass — original 8 green +
+  5 new StorageAdapter conformance tests, simulated/in-memory default). Live Sheets storage
+  not exercised in this pass (opt-in: `STORAGE_BACKEND=sheets` + `proc_state`/`proc_audit` tabs).
 - Method: `npm run typecheck` (ok); `npm test` (8/8 pass, simulated default); live server
   started with `GOOGLE_CONNECTORS=live` + `GOOGLE_SERVICE_ACCOUNT_JSON_FILE`, full flow run
   over streamable HTTP (`submit` → `generate` → `approve`); row re-read from the sheet;
@@ -57,4 +67,7 @@ Start in a **fresh session** (this one is long/compacted). Pick one:
 
 ## Known Risks
 
-- SPEC §15.11 (Sheets storage impl) and §15.12 (non-HR sample) intentionally deferred for V1 — see `memory/implementation-notes.md`.
+- SPEC §15.11 (Sheets storage impl) now implemented; §15.12 (non-HR sample) still deferred — see `memory/implementation-notes.md`.
+- Sheets StorageAdapter does a full-tab scan on read and a non-atomic read-modify-write on
+  `updateStatus` (documented in `storage/sheetsStorageAdapter.ts`). Fine for the V1 reference
+  impl; process-level dedup is still the runtime's idempotency store, not storage.

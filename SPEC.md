@@ -64,11 +64,11 @@ mcp-custom-standard/
 │  ├─ core/
 │  │  ├─ auth/           apiKey.ts | context.ts
 │  │  ├─ config/         loadCompany.ts | loadModules.ts
-│  │  ├─ logging/  errors/  permissions/  validation/  maintenance/
+│  │  ├─ logging/  errors/  permissions/  validation/
 │  ├─ runtime/           processRuntime.ts   # status gate + status update + audit emission
 │  ├─ registry/          moduleRegistry.ts | toolRegistry.ts | processRegistry.ts
 │  ├─ connectors/        google/{drive,docs,sheets,gmail,forms,calendar}.ts | http.ts | webhook.ts
-│  ├─ storage/           storageAdapter.ts   # interface only + 1 reference impl (sheets)
+│  ├─ storage/           inMemoryAdapter.ts | sheetsStorageAdapter.ts | index.ts  # InMemory (default) + Sheets reference impl (STORAGE_BACKEND=sheets); interface in shared/types/contracts.ts
 │  ├─ modules/
 │  │  ├─ _template/{process}/...
 │  │  ├─ hr/recruitment/
@@ -284,7 +284,6 @@ tools:
   publish_job_opening        # appends sheet row + notifies; approved → published
   update_candidate_status    # status transition with audit
 ```
-Non-HR sample (operations or sales) implementing the same contract with ≥3 process tools and one human-validation checkpoint.
 
 > Tool names like `write_row`, `send_http_request`, `create_file`, `call_google_api` are PROHIBITED at the MCP surface. Such steps live inside services.
 
@@ -333,7 +332,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON= GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= APPS_SCRIPT
 9.  A human-validation checkpoint blocks AI auto-approval; only the validating role transitions it.
 10. Idempotent side-effect tool re-call returns the prior result, no duplicate side effect.
 11. Storage runs through StorageAdapter (Sheets reference impl), swappable without core edits.
-12. HR recruitment sample + one non-HR sample run end-to-end.
+12. HR recruitment sample runs end-to-end.
 13. Contract tests pass; maintenance report runs.
 14. README covers local run, Docker run, module creation, deployment.
 ```
@@ -342,3 +341,28 @@ GOOGLE_SERVICE_ACCOUNT_JSON= GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= APPS_SCRIPT
 
 ## OUT OF SCOPE (V1)
 Admin UI · workflow editor · billing · full OAuth · multi-tenant database · marketplace · production-grade Google connectors · the HR self-service/operations exposure split (future, non-binding).
+
+---
+
+# Appendix
+
+## Skill + MCP Product Model
+
+A Skill could be added to be the AI-agent guide: tell Claude/Codex how to use the HR workflow, what inputs to collect, and which MCP tools to call. 
+Embedded Skill scripts may help with setup, tests, sheet preparation, or module scaffolding.
+But the Skill should not replace the MCP: the MCP remains the secure runtime for identity, permissions, status changes, audit, and Google Sheets/Docs writes.
+
+**Recommended flow:**
+Manager → Chatbot + HR Skill → MCP tool → Google Sheets / Docs → HR review
+
+
+## Commercial options:
+
+**Free MCP + paid Sheets/Add-on**
+Easier to market through Google Workspace, but risky: you pay hosting/support for free MCP users, and the core value may be used without paying.
+
+**Free Sheets + paid hosted MCP** (PREFERRED)
+Better SaaS model. The sheet is the visible workspace; the paid MCP is the automation, security, audit, and AI integration layer. Costs scale with paying customers.
+
+**Recommended model**
+Offer a free demo/self-hosted MCP, sell the hosted MCP subscription, and include the Google Sheet/Add-on + Skill as onboarding assets. This keeps developer costs controlled while making installation easy for SMBs.
