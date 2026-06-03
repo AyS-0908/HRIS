@@ -5,6 +5,9 @@ import {
   approveJobDescriptionInput,
   generateJobDescriptionInput,
   submitJobRequestInput,
+  type ApproveJobDescriptionInput,
+  type GenerateJobDescriptionInput,
+  type SubmitJobRequestInput,
 } from "./schemas.js";
 import { appendRecJobDescRow, draftJobDescriptionDoc } from "./service.js";
 
@@ -30,7 +33,8 @@ const submitJobRequest: ToolDefinition = {
     idempotent: false,
   },
   async handler(_ctx, input) {
-    const i = submitJobRequestInput.parse(input);
+    // Runtime (§5 step 3) already validated against inputZod; trust the typed input.
+    const i = input as SubmitJobRequestInput;
     return {
       status: "success",
       data: { title: i.title, plannedHire: i.plannedHire },
@@ -55,7 +59,7 @@ const generateJobDescription: ToolDefinition = {
     idempotent: true,
   },
   async handler(_ctx, input, deps) {
-    const i = generateJobDescriptionInput.parse(input);
+    const i = input as GenerateJobDescriptionInput;
     const { docId, url } = await draftJobDescriptionDoc(deps, i, i.targetSummary);
     return { status: "success", data: { docId, url }, traceIds: [docId] };
   },
@@ -77,7 +81,7 @@ const approveJobDescription: ToolDefinition = {
     idempotent: true,
   },
   async handler(_ctx, input, deps) {
-    const i = approveJobDescriptionInput.parse(input);
+    const i = input as ApproveJobDescriptionInput;
     const { rowId } = await appendRecJobDescRow(deps, i);
     return { status: "success", data: { rowId }, traceIds: [rowId] };
   },

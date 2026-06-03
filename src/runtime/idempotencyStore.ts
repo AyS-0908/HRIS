@@ -7,6 +7,8 @@ export interface IdempotencyStore {
   set(scopeKey: string, result: ToolResult): void;
 }
 
+// Known V1 limitation: no TTL/eviction — entries accumulate for the process lifetime.
+// Acceptable for a reference impl; a production backend should bound growth (TTL/LRU).
 export class InMemoryIdempotencyStore implements IdempotencyStore {
   private readonly seen = new Map<string, ToolResult>();
   get(scopeKey: string): ToolResult | undefined {

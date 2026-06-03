@@ -41,4 +41,4 @@ for (const file of readdirSync(TEMPLATE_DIR)) {
 }
 
 console.log(`scaffolded module ${tokens.__MODULE_NAME__} at src/modules/${domain}/${moduleName}/`);
-console.log("next: add the module to ALL_MODULES in src/app.ts and enable it in a company config.");
+console.log("next: register it in the ALL_MODULES manifest (src/modules/index.ts) and enable it in a company config.");

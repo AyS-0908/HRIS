@@ -1,34 +1,18 @@
 // Live Sheets connector (service-account auth). Activated when GOOGLE_CONNECTORS=live.
 // Writes real rows via the Sheets API. The service account must have edit access to
 // the target spreadsheet (share the sheet with the SA's client_email).
-import { JWT } from "google-auth-library";
 import type { HealthResult, Logger, SheetsConnector } from "../../shared/types/contracts.js";
-
-const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
-
-interface ServiceAccount {
-  client_email: string;
-  private_key: string;
-}
+import { createSheetsJwt } from "./auth.js";
 
 export function createSheetsConnectorLive(logger: Logger, serviceAccountJson: string): SheetsConnector {
-  let creds: ServiceAccount;
-  try {
-    creds = JSON.parse(serviceAccountJson) as ServiceAccount;
-  } catch {
-    throw new Error("service account JSON is not valid JSON");
-  }
-  if (!creds.client_email || !creds.private_key) {
-    throw new Error("service account JSON missing client_email/private_key");
-  }
-  const client = new JWT({ email: creds.client_email, key: creds.private_key, scopes: SCOPES });
+  const { client, clientEmail } = createSheetsJwt(serviceAccountJson);
 
   return {
     name: "google.sheets",
     async healthCheck(): Promise<HealthResult> {
       try {
         await client.authorize();
-        return { ok: true, detail: `live as ${creds.client_email}` };
+        return { ok: true, detail: `live as ${clientEmail}` };
       } catch (e) {
         return { ok: false, detail: `auth failed: ${String(e)}` };
       }

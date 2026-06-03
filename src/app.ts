@@ -1,6 +1,8 @@
 // Composition root: wires config, modules, registries, connectors, storage, runtime.
-// Nothing here is edited to onboard a company or add a module (SPEC §0).
-import type { Connectors, Logger, ModuleContract, StorageAdapter } from "./shared/types/contracts.js";
+// Onboarding a company (COMPANY_CONFIG_PATH, comma-separated for several) and adding a
+// module (src/modules/index.ts manifest) happen outside this file — core stays untouched
+// (SPEC §0). What lives here is generic wiring only.
+import type { Connectors, Logger, StorageAdapter } from "./shared/types/contracts.js";
 import { createLogger } from "./core/logging/logger.js";
 import { CompanyRegistry, loadCompanyConfig } from "./core/config/loadCompany.js";
 import { resolveEnabledModules } from "./core/config/loadModules.js";
@@ -8,11 +10,11 @@ import { ModuleRegistry } from "./registry/moduleRegistry.js";
 import { ToolRegistry, type ResolvedTool } from "./registry/toolRegistry.js";
 import { ProcessRegistry } from "./registry/processRegistry.js";
 import { buildConnectors } from "./connectors/index.js";
-import { InMemoryStorageAdapter } from "./storage/inMemoryAdapter.js";
+import { buildStorage } from "./storage/index.js";
 import { InMemoryIdempotencyStore } from "./runtime/idempotencyStore.js";
 import { ProcessRuntime } from "./runtime/processRuntime.js";
 import { validateModule } from "./registry/validateModule.js";
-import { recruitmentModule } from "./modules/hr/recruitment/index.js";
+import { ALL_MODULES } from "./modules/index.js";
 import { readFileSync } from "node:fs";
 
 export interface AppConfig {
@@ -20,6 +22,7 @@ export interface AppConfig {
   companyConfigPath: string;
   logLevel: "debug" | "info" | "warn" | "error";
   googleConnectors: "simulated" | "live";
+  storageBackend: "memory" | "sheets";
   serviceAccountJson?: string;
 }
 
@@ -37,9 +40,9 @@ export interface App {
   enabledToolsFor(companyId: string): ResolvedTool[];
 }
 
-// All modules shipped with the standard. Adding a module = adding it here (or via
-// the registry); company config decides which are exposed.
-export const ALL_MODULES: ModuleContract[] = [recruitmentModule];
+// Re-exported from the modules manifest (src/modules/index.ts) — that is the drop-in
+// registration point. Kept here for back-compat with scripts importing from app.js.
+export { ALL_MODULES } from "./modules/index.js";
 
 export function buildApp(config: AppConfig): App {
   const logger = createLogger(config.logLevel);
@@ -50,9 +53,11 @@ export function buildApp(config: AppConfig): App {
     modules.register(m);
   }
 
+  // COMPANY_CONFIG_PATH may list several paths (comma-separated) to onboard multiple
+  // tenants without a core edit; the registry is multi-company by design.
   const companies = new CompanyRegistry();
-  const company = loadCompanyConfig(config.companyConfigPath);
-  companies.add(company);
+  const paths = config.companyConfigPath.split(",").map((p) => p.trim()).filter(Boolean);
+  for (const p of paths) companies.add(loadCompanyConfig(p));
   // Validate every company's enabled modules + roles up front (fail fast, SPEC §6).
   for (const c of companies.list()) resolveEnabledModules(c, modules);
 
@@ -63,7 +68,13 @@ export function buildApp(config: AppConfig): App {
     googleMode: config.googleConnectors,
     serviceAccountJson: config.serviceAccountJson,
   });
-  const storage = new InMemoryStorageAdapter();
+  // Sheets storage reuses the first company's recruitment spreadsheet (its proc_state /
+  // proc_audit tabs). Records carry companyId, so one sheet serves all companies (V1).
+  const storage = buildStorage(logger, {
+    backend: config.storageBackend,
+    serviceAccountJson: config.serviceAccountJson,
+    sheetId: companies.list()[0]?.resources.googleSheets?.hrRecruitmentSheetId,
+  });
   const idempotency = new InMemoryIdempotencyStore();
   const runtime = new ProcessRuntime({ storage, connectors, logger, idempotency, companies });
 
@@ -95,6 +106,7 @@ export function loadAppConfigFromEnv(): AppConfig {
     companyConfigPath: process.env.COMPANY_CONFIG_PATH ?? "config/company.example.yaml",
     logLevel: (process.env.LOG_LEVEL as AppConfig["logLevel"]) ?? "info",
     googleConnectors: process.env.GOOGLE_CONNECTORS === "live" ? "live" : "simulated",
+    storageBackend: process.env.STORAGE_BACKEND === "sheets" ? "sheets" : "memory",
     serviceAccountJson: resolveServiceAccountJson(),
   };
 }

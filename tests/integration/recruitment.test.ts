@@ -39,6 +39,7 @@ beforeEach(() => {
     companyConfigPath: "config/company.example.yaml",
     logLevel: "error",
     googleConnectors: "simulated",
+    storageBackend: "memory",
   });
 });
 

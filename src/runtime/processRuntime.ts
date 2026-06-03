@@ -89,6 +89,10 @@ export class ProcessRuntime {
       inputSummary = redactForAudit(input);
       const meta = input as { processInstanceId?: string; idempotencyKey?: string };
       const idemKey = meta.idempotencyKey ?? "";
+      // Scope dedup to the instance: idempotent tools are all non-creators, so
+      // processInstanceId is present once the status gate (step 4) has run. Without it,
+      // two instances reusing the same key would collide (B gets A's prior result).
+      const idemScope = `${ctx.companyId}:${tool.name}:${meta.processInstanceId ?? ""}:${idemKey}`;
 
       // 4. load/create instance + status gate
       if (isCreator) {
@@ -126,8 +130,7 @@ export class ProcessRuntime {
         if (!idemKey) {
           throw validationError(`idempotencyKey required for idempotent tool ${tool.name}`);
         }
-        const scope = `${ctx.companyId}:${tool.name}:${idemKey}`;
-        const prior = this.deps.idempotency.get(scope);
+        const prior = this.deps.idempotency.get(idemScope);
         if (prior) {
           this.deps.logger.info("idempotent short-circuit", { tool: tool.name });
           shortCircuited = true;
@@ -179,13 +182,17 @@ export class ProcessRuntime {
       };
 
       if (pb.idempotent && idemKey && result.status === "success") {
-        this.deps.idempotency.set(`${ctx.companyId}:${tool.name}:${idemKey}`, result);
+        this.deps.idempotency.set(idemScope, result);
       }
       return result;
     } catch (err) {
       thrown = err;
       errorCode = toClientError(err).code;
-      statusAfter = statusBefore;
+      // Reflect the instance's actual persisted status. For a non-creator this equals
+      // statusBefore (updateStatus only runs on success). For a creator the instance was
+      // already created at statusAfterSuccess before the handler ran, so the audit must
+      // show that — not "" — to stay consistent with storage.
+      statusAfter = instance?.currentStatus ?? statusBefore;
       result = { status: "error", data: { errorCode }, traceIds: [] };
       throw err instanceof AppError ? err : internalError(String(err));
     } finally {

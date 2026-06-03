@@ -66,11 +66,34 @@ export interface WebhookConnector extends Connector {
     idempotencyKey: string,
   ): Promise<{ deliveryId: string }>;
 }
+// V1 skeletons (SPEC §8): provider-neutral surfaces, simulated. Methods accept an
+// idempotencyKey and return a traceable external id, matching the §4.4 SideEffect set.
+export interface GmailConnector extends Connector {
+  sendEmail(
+    input: { to: string; subject: string; body: string },
+    idempotencyKey: string,
+  ): Promise<{ messageId: string }>;
+}
+export interface FormsConnector extends Connector {
+  createForm(
+    input: { title: string; description?: string },
+    idempotencyKey: string,
+  ): Promise<{ formId: string; url: string }>;
+}
+export interface CalendarConnector extends Connector {
+  createEvent(
+    input: { title: string; startsAt: string; endsAt: string; attendees?: string[] },
+    idempotencyKey: string,
+  ): Promise<{ eventId: string; url: string }>;
+}
 
 export interface Connectors {
   docs: DocsConnector;
   sheets: SheetsConnector;
   drive: DriveConnector;
+  gmail: GmailConnector;
+  forms: FormsConnector;
+  calendar: CalendarConnector;
   http: HttpConnector;
   webhook: WebhookConnector;
 }

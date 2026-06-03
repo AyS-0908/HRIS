@@ -5,6 +5,9 @@ import { createDocsConnector } from "./google/docs.js";
 import { createSheetsConnector } from "./google/sheets.js";
 import { createSheetsConnectorLive } from "./google/sheetsLive.js";
 import { createDriveConnector } from "./google/drive.js";
+import { createGmailConnector } from "./google/gmail.js";
+import { createFormsConnector } from "./google/forms.js";
+import { createCalendarConnector } from "./google/calendar.js";
 import { createHttpConnector } from "./generic/http.js";
 import { createWebhookConnector } from "./generic/webhook.js";
 
@@ -26,6 +29,9 @@ export function buildConnectors(logger: Logger, options: ConnectorOptions): Conn
       ? createSheetsConnectorLive(logger, options.serviceAccountJson!)
       : createSheetsConnector(logger),
     drive: createDriveConnector(logger), // simulated in V1
+    gmail: createGmailConnector(logger), // simulated in V1
+    forms: createFormsConnector(logger), // simulated in V1
+    calendar: createCalendarConnector(logger), // simulated in V1
     http: createHttpConnector(logger),
     webhook: createWebhookConnector(logger),
   };
