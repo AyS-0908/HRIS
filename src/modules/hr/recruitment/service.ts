@@ -1,6 +1,7 @@
 // Services own the side effects: handlers call these, these call connectors
 // (SPEC §0, §11). A handler never calls a connector directly.
 import type { ServiceDeps } from "../../../shared/types/contracts.js";
+import { connectorError } from "../../../core/errors/appError.js";
 import type {
   ApproveJobDescriptionInput,
   GenerateJobDescriptionInput,
@@ -26,10 +27,16 @@ export async function draftJobDescriptionDoc(
   input: GenerateJobDescriptionInput,
   title: string,
 ): Promise<{ docId: string; url: string }> {
-  const res = await deps.connectors.docs.createDocument(
-    { title: `Job description — ${title}`, content: buildDraftBody(input) },
-    deps.idempotencyKey,
-  );
+  let res: { docId: string; url: string };
+  try {
+    res = await deps.connectors.docs.createDocument(
+      { title: `Job description — ${title}`, content: buildDraftBody(input) },
+      deps.idempotencyKey,
+    );
+  } catch (e) {
+    deps.logger.error("docs.createDocument failed", { err: String(e) });
+    throw connectorError("failed to create job description document");
+  }
   deps.recordExternal("docId", res.docId);
   return res;
 }
@@ -41,20 +48,26 @@ export async function appendRecJobDescRow(
   input: ApproveJobDescriptionInput,
 ): Promise<{ rowId: string }> {
   const sheetId = deps.resources.googleSheets?.hrRecruitmentSheetId ?? "simulated-sheet";
-  const res = await deps.connectors.sheets.appendRow(
-    {
-      sheetId,
-      tab: REC_JOBDESC_TAB,
-      values: {
-        id: deps.process.processInstanceId,
-        titre: input.jobTitle,
-        mgr: deps.ctx.actorId,
-        url: input.docUrl,
-        status: "approved",
+  let res: { rowId: string };
+  try {
+    res = await deps.connectors.sheets.appendRow(
+      {
+        sheetId,
+        tab: REC_JOBDESC_TAB,
+        values: {
+          id: deps.process.processInstanceId,
+          titre: input.jobTitle,
+          mgr: deps.ctx.actorId,
+          url: input.docUrl,
+          status: "approved",
+        },
       },
-    },
-    deps.idempotencyKey,
-  );
+      deps.idempotencyKey,
+    );
+  } catch (e) {
+    deps.logger.error("sheets.appendRow failed", { err: String(e) });
+    throw connectorError("failed to append rec_jobDesc row");
+  }
   deps.recordExternal("rec_jobDesc_row", res.rowId);
   return res;
 }

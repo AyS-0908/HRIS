@@ -24,7 +24,7 @@ async function main() {
 
   // Connectors (V1 = simulated skeletons → warning, not error)
   let connectorsHealth: Health = "ok";
-  const connectors = buildConnectors(logger);
+  const connectors = buildConnectors(logger, { googleMode: "simulated" });
   for (const c of Object.values(connectors)) {
     const h = await c.healthCheck();
     if (!h.ok) {

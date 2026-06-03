@@ -4,9 +4,8 @@ Last updated: 2026-06-03
 
 ## Current Objective
 
-V1 implemented and verified. Next candidate work: wire the real Google Sheets
-adapter/connectors (requires Google service-account creds), or add a second
-domain module.
+V1 + live Google Sheets connector implemented. Awaiting a Google service-account
+JSON to verify a real end-to-end write to the test sheet.
 
 ## Done
 
@@ -29,7 +28,9 @@ domain module.
 
 ## Next Action
 
-When Google creds are available, implement the Sheets `StorageAdapter` reference impl and replace simulated connector calls (start with `connectors/google/sheets.ts` + a `SheetsStorageAdapter`).
+Provide a Google service-account JSON (and share the test sheet with its client_email),
+then run `GOOGLE_CONNECTORS=live` to verify `approve_job_description` writes a real
+`rec_jobDesc` row. After that: optional Sheets `StorageAdapter` (process state in Sheets).
 
 ## Last Verification
 

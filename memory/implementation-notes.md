@@ -17,6 +17,13 @@ Compact log of decisions/changes not in SPEC.md. AI-native, terse.
 - Build uses `tsconfig.build.json` (rootDir `src`) so output is `dist/server/...`; root `tsconfig.json` (rootDir `.`) is for `npm run typecheck` over src+scripts+tests.
 - Module scaffolding templates use `.tmpl` extension so tsc ignores them; `create-module` strips it and substitutes `__DOMAIN__`/`__MODULE__`/`__MODULE_NAME__`.
 
+## Post-V1 — live Google Sheets
+- Added `google-auth-library` (JWT service-account). `GOOGLE_CONNECTORS=live` swaps ONLY the Sheets connector to live (`sheetsLive.ts`); docs/drive/http/webhook stay simulated.
+- `appendRow` (live) POSTs to Sheets API `values:append` (RAW, INSERT_ROWS); row = `Object.values(values)` so the service must build the record in column order (id, titre, mgr, url, status).
+- Target sheet must have a `rec_jobDesc` tab; share it with the SA `client_email`. Test sheet id wired in `config/company.example.yaml`.
+- Connector failures now mapped to `CONNECTOR_ERROR` in `service.ts` (was INTERNAL).
+- Sheets append is not natively idempotent; dedup relies on the runtime idempotency store.
+
 ## Tradeoffs
 - SPEC §5 orders status-gate (step 4) BEFORE idempotency (step 5). Consequence: re-calling a transitioning tool after success hits INVALID_STATE, not the idempotent short-circuit. Idempotency therefore meaningfully applies to non-transitioning idempotent tools (e.g. `generate_job_description`, status unchanged). Implemented as specified.
 - Connectors are simulated; `report-maintenance` reports `connectors: "warning"` (not error) in V1.

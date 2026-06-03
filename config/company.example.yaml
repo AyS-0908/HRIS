@@ -12,6 +12,8 @@ resources:
   googleDrive:
     hrKnowledgeFolderId: ""
   googleSheets:
-    hrRecruitmentSheetId: ""
+    # Test sheet (live mode). Requires a tab named "rec_jobDesc" with columns:
+    # id | titre | mgr | url | status. Share the sheet with the service account email.
+    hrRecruitmentSheetId: "1VhEeiLsix8Dk8Jwo1Hvh2zHcWbf3PBTfJPJWmK8DL-M"
   googleDocs:
     jobDescriptionTemplateId: ""

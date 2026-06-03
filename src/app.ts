@@ -18,6 +18,8 @@ export interface AppConfig {
   apiKey: string;
   companyConfigPath: string;
   logLevel: "debug" | "info" | "warn" | "error";
+  googleConnectors: "simulated" | "live";
+  serviceAccountJson?: string;
 }
 
 export interface App {
@@ -56,7 +58,10 @@ export function buildApp(config: AppConfig): App {
   const tools = new ToolRegistry(modules);
   const processes = new ProcessRegistry(modules);
 
-  const connectors = buildConnectors(logger);
+  const connectors = buildConnectors(logger, {
+    googleMode: config.googleConnectors,
+    serviceAccountJson: config.serviceAccountJson,
+  });
   const storage = new InMemoryStorageAdapter();
   const idempotency = new InMemoryIdempotencyStore();
   const runtime = new ProcessRuntime({ storage, connectors, logger, idempotency, companies });
@@ -88,5 +93,7 @@ export function loadAppConfigFromEnv(): AppConfig {
     apiKey: process.env.API_KEY ?? "",
     companyConfigPath: process.env.COMPANY_CONFIG_PATH ?? "config/company.example.yaml",
     logLevel: (process.env.LOG_LEVEL as AppConfig["logLevel"]) ?? "info",
+    googleConnectors: process.env.GOOGLE_CONNECTORS === "live" ? "live" : "simulated",
+    serviceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
   };
 }

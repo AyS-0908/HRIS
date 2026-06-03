@@ -56,6 +56,25 @@ npm run check-standard      # validate all module contracts offline
 npm run report-maintenance  # emit the maintenance JSON report (SPEC §12)
 ```
 
+## Live Google Sheets (optional)
+
+By default all Google connectors are **simulated**. To write real rows to the
+`rec_jobDesc` tab via `approve_job_description`:
+
+1. Create a Google **service account** and download its JSON key.
+2. **Share** the target spreadsheet with the service account's `client_email` (Editor).
+3. Ensure the sheet has a tab named **`rec_jobDesc`** with columns: `id | titre | mgr | url | status`.
+4. Set the spreadsheet id in your company config (`resources.googleSheets.hrRecruitmentSheetId`).
+5. Run with:
+
+```bash
+GOOGLE_CONNECTORS=live \
+GOOGLE_SERVICE_ACCOUNT_JSON='<full service-account JSON on one line>' \
+npm start
+```
+
+Only the Sheets connector goes live; Docs/Drive remain simulated until wired.
+
 ## Docker / Coolify
 
 ```bash
