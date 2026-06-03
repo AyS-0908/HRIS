@@ -37,10 +37,24 @@ no core edits. Next optional step is a second non-HR module (§15.12).
 
 - None.
 
+## Deployed (2026-06-04)
+
+- Live on Coolify VPS (app **HRIS**, project Hosted Apps): http://n14cksbmq1674v2zo5ei57vq.92.112.194.235.sslip.io
+- Deployed from branch `feat/mcp-standard-v1` via Coolify API (GitHub App `ays-github-app`).
+- SAFE mode env (simulated connectors + in-memory storage): `API_KEY`, `COMPANY_CONFIG_PATH`,
+  `LOG_LEVEL`, `PORT=3000`, `MCP_SERVER_PUBLIC_URL`. App `API_KEY` stored in Coolify only.
+- **Docker build fix (§15.1, first real Docker build):** Dockerfile copied only `tsconfig.json`;
+  `npm run build` needs `tsconfig.build.json` → now copies both. Was never built in Docker before.
+- Verified live over streamable HTTP (Accept must include `text/event-stream`): `/healthz` ok;
+  `get_standard_version`; full `submit → generate → approve` (→ approved); idempotent re-call
+  returns same `docId`; `VALIDATION_ERROR` and `FORBIDDEN` guardrails fire. In-memory storage.
+
 ## Next Action
 
-Start in a **fresh session** (this one is long/compacted):
-- A second non-HR module (§15.12) via `_template` + `create-module`, to further prove reusability.
+- **Live Sheets storage test** (the one path never run for real): set `GOOGLE_CONNECTORS=live`,
+  `STORAGE_BACKEND=sheets`, `GOOGLE_SERVICE_ACCOUNT_JSON` (single-line) in Coolify; ensure the
+  `rec_jobDesc` / `proc_state` / `proc_audit` tabs exist; redeploy and rerun the flow.
+- Then (fresh session): the 2 missing §11 tools (`publish_job_opening`, `update_candidate_status`).
 
 ## Last Verification
 
@@ -57,6 +71,9 @@ Start in a **fresh session** (this one is long/compacted):
 
 ## Notes
 
+- Flow analysis (2026-06-03): current HR recruitment flow is manager submit →
+  AI/doc draft → manager approve → Sheets row. HR email notification and HR-team
+  review/validation are not implemented yet; Docs remains simulated.
 - Service-account JSON is multi-line, which `node --env-file` cannot parse inline.
   `loadAppConfigFromEnv` now prefers `GOOGLE_SERVICE_ACCOUNT_JSON_FILE` (a path to the key
   file); inline `GOOGLE_SERVICE_ACCOUNT_JSON` remains a single-line fallback. Local key file
