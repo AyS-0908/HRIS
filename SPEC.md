@@ -1,0 +1,344 @@
+# SPEC — MCP Custom Standard (V1)
+
+> AI-CODER CONTRACT. This document is the source of truth. Where a TypeScript signature or YAML schema is given, implement it exactly; do not redesign the interface. Implementation bodies are yours. Anything not specified is a free implementation choice — choose the simplest correct option and note it in code comments.
+
+---
+
+## 0. GOAL
+
+Reusable MCP server. Business logic plugs in as **modules** (per domain) and **processes** (per workflow) via config + drop-in folders. Core code is never edited to onboard a company or add a module.
+
+Layering (strict, one-directional dependency, top → bottom only):
+
+```
+MCP client → transport → core → process runtime → module → service → connector → external system
+```
+
+A tool handler MUST NOT call a connector directly. It calls a module service; the service calls a connector.
+
+---
+
+## 1. STACK & TRANSPORT
+
+```yaml
+language: TypeScript (strict)
+runtime: Node.js LTS
+transport: streamable HTTP   # remote MCP; required by Coolify VPS + MCP_SERVER_PUBLIC_URL
+validation: zod              # internal source of truth; JSON Schema for tool discovery is DERIVED from zod
+logging: structured JSON (one event per line)
+deploy: Dockerfile, Coolify-compatible
+```
+
+Tool `input_schema` exposed over MCP = JSON Schema generated from the zod schema. Never author both by hand.
+
+---
+
+## 2. IDENTITY & TENANCY (resolve before anything else)
+
+Every request carries: an API key (authenticates the calling client) and a tenant/actor context.
+
+```ts
+interface RequestContext {
+  companyId: string;        // from header `x-company-id`, validated against loaded companies
+  actorId: string;          // from header `x-actor-id`
+  actorRole: string;        // from header `x-actor-role`, validated against company roles
+  apiKeyId: string;         // resolved from API_KEY
+}
+```
+
+Rules:
+- Reject if API key invalid → `UNAUTHENTICATED`.
+- Reject if `companyId` unknown or `actorRole` not in that company's roles → `FORBIDDEN`.
+- `RequestContext` is threaded into every tool handler, service, and audit event. It is the only source of `actorId`/`companyId`; never infer them elsewhere.
+
+> [Assumed] Header-based identity. If you instead carry identity in a signed token, the resolved fields above are unchanged — only the extraction differs.
+
+---
+
+## 3. REPOSITORY LAYOUT (authoritative — single hierarchy)
+
+```
+mcp-custom-standard/
+├─ src/
+│  ├─ server/            index.ts | mcpServer.ts | transport.ts
+│  ├─ core/
+│  │  ├─ auth/           apiKey.ts | context.ts
+│  │  ├─ config/         loadCompany.ts | loadModules.ts
+│  │  ├─ logging/  errors/  permissions/  validation/  maintenance/
+│  ├─ runtime/           processRuntime.ts   # status gate + status update + audit emission
+│  ├─ registry/          moduleRegistry.ts | toolRegistry.ts | processRegistry.ts
+│  ├─ connectors/        google/{drive,docs,sheets,gmail,forms,calendar}.ts | http.ts | webhook.ts
+│  ├─ storage/           storageAdapter.ts   # interface only + 1 reference impl (sheets)
+│  ├─ modules/
+│  │  ├─ _template/{process}/...
+│  │  ├─ hr/recruitment/
+│  │  └─ ops/<sample>/
+│  └─ shared/            types/ | utils/
+├─ config/               company.example.yaml | modules.example.yaml | permissions.example.yaml
+├─ tests/                unit/ | integration/ | contract/
+├─ scripts/              create-module.ts | check-standard.ts | report-maintenance.ts
+├─ Dockerfile | package.json | .env.example | README.md | STANDARD_CHANGELOG.md
+```
+
+Module path is ALWAYS `modules/{domain}/{process}/`. No two-level variant exists.
+
+---
+
+## 4. CORE CONTRACTS (implement these types exactly)
+
+### 4.1 Connector base
+```ts
+interface HealthResult { ok: boolean; detail?: string }
+interface Connector { name: string; healthCheck(): Promise<HealthResult> }
+```
+Each connector exposes only stable, provider-neutral methods. No provider types leak past the connector boundary.
+
+### 4.2 Storage abstraction (storage backend is pluggable, never hardcoded)
+```ts
+interface ProcessState {
+  processInstanceId: string;
+  processId: string;
+  companyId: string;
+  currentStatus: string;
+  currentStep: string;
+  createdBy: string;
+  createdAt: string;   // ISO-8601
+  updatedAt: string;
+  lastToolCalled: string;
+  externalReferences: Record<string, string>;
+  auditLogId: string;
+}
+
+interface StorageAdapter {
+  createInstance(s: Omit<ProcessState,'updatedAt'|'auditLogId'>): Promise<ProcessState>;
+  getInstance(companyId: string, processInstanceId: string): Promise<ProcessState | null>;
+  updateStatus(companyId: string, processInstanceId: string, patch:
+    Pick<ProcessState,'currentStatus'|'currentStep'|'lastToolCalled'>): Promise<ProcessState>;
+  appendAudit(e: AuditEvent): Promise<void>;
+}
+```
+V1 reference implementation: Google Sheets adapter. The runtime depends only on `StorageAdapter`.
+
+### 4.3 Audit event
+```ts
+interface AuditEvent {
+  auditLogId: string;
+  timestamp: string;          // ISO-8601
+  companyId: string;
+  processId: string;
+  processInstanceId: string;
+  toolName: string;
+  actorRole: string;
+  actorId: string;
+  inputSummary: Record<string, unknown>;   // redacted; no secrets
+  externalOutputs: Record<string, string>; // e.g. { docId, sheetRow, messageId }
+  statusBefore: string;
+  statusAfter: string;
+  result: 'success' | 'error';
+  errorCode: string | null;
+}
+```
+
+### 4.4 Tool definition (one tool = one coarse business action)
+```ts
+interface ToolDefinition<I = unknown> {
+  name: string;                       // stable, business-action verb
+  description: string;
+  inputZod: ZodSchema<I>;             // JSON Schema for MCP derived from this
+  permissionScope: string;            // required business permission
+  process?: {                         // present iff the tool participates in a process
+    processId: string;
+    allowedStatusesBefore: string[];  // gate
+    statusAfterSuccess: string;
+    requiredRole: string;
+    sideEffects: SideEffect[];
+    auditLevel: 'none' | 'standard' | 'strict';
+    idempotent: boolean;              // true ⇒ handler must dedup via idempotencyKey
+  };
+  handler(ctx: RequestContext, input: I, deps: ServiceDeps): Promise<ToolResult>;
+}
+
+type SideEffect = 'create_document'|'update_sheet'|'send_email'|'create_calendar_event'|'create_form_event';
+interface ToolResult { status:'success'|'error'; data: Record<string,unknown>; traceIds: string[] }
+```
+
+### 4.5 Module contract (single contract; process fields are the optional extension)
+```ts
+interface ModuleContract {
+  moduleName: string;
+  moduleVersion: string;        // semver
+  tools: ToolDefinition[];
+  permissionRules: PermissionRule[];
+  serviceBindings: ServiceBindings;
+  healthCheck(): Promise<HealthResult>;
+  // present only for process modules:
+  processDefinition?: ProcessDefinition;
+  statusModel?: StatusModel;
+  storageBindings?: StorageBindings;
+}
+```
+
+### 4.6 Process definition
+```ts
+interface ProcessDefinition {
+  processId: string;
+  domain: 'hr'|'sales'|'finance'|'operations'|'other';
+  name: string;
+  version: string;              // semver
+  steps: string[];              // ordered
+  statuses: string[];           // allowed values
+  roles: string[];
+  auditRequired: boolean;       // floor: if true, no tool in this process may use auditLevel 'none'
+}
+```
+
+---
+
+## 5. PROCESS RUNTIME (the only place status logic lives)
+
+Execution order for any process tool — `processRuntime` enforces this; handlers never reimplement it:
+
+```
+1. authenticate + resolve RequestContext        → else UNAUTHENTICATED
+2. check permissionScope against actorRole       → else FORBIDDEN
+3. validate input via inputZod                   → else VALIDATION_ERROR
+4. load ProcessState; assert currentStatus ∈ allowedStatusesBefore → else INVALID_STATE
+5. if idempotent: short-circuit on seen idempotencyKey → return prior ToolResult
+6. run handler (side effects happen here, via services)
+7. on success: storage.updateStatus(statusAfterSuccess)
+8. emit AuditEvent (always; even on error) per resolved audit level
+```
+
+Audit-level resolution: effective = max(tool.auditLevel, process.auditRequired ? 'standard' : 'none'). `none` is forbidden when `auditRequired = true`.
+
+Human validation = an explicit `status` value (e.g. `pending_manager_validation` → `manager_validated`). AI tools may produce recommendations but MUST NOT transition a validation status; only a tool requiring the validating role + carrying the actor's identity may. Validation actor, role, and timestamp land in the audit event.
+
+---
+
+## 6. CONFIGURATION (per company, no core edits)
+
+`config/company.<id>.yaml`:
+```yaml
+company:
+  id: acme
+  name: Acme Corp
+  enabledModules: [hr.recruitment, sales.lead_management]
+  roles: [hr_admin, manager, employee, sales_admin]
+resources:
+  googleDrive:   { hrKnowledgeFolderId: "", salesTemplatesFolderId: "" }
+  googleSheets:  { hrRecruitmentSheetId: "", salesPipelineSheetId: "" }
+  googleDocs:    { jobDescriptionTemplateId: "", proposalTemplateId: "" }
+```
+Loader validates against zod, fails fast on unknown module references or undefined roles.
+
+---
+
+## 7. CORE TOOLS (only these exposed by default)
+
+```
+health_check
+list_available_business_tools
+get_standard_version
+```
+Maintenance, logs, secrets, diagnostics are NOT MCP tools unless an explicit `admin` flag enables them.
+
+---
+
+## 8. CONNECTORS (V1 = skeletons, provider-neutral surface)
+
+```
+google: drive, docs, sheets, gmail, forms, calendar
+generic: http, webhook
+```
+Each implements `Connector`. Side-effect methods accept an `idempotencyKey` and return a traceable external id. Production-hardened Google auth is OUT of V1 scope; skeletons + one working path (Sheets, for the storage adapter) are required.
+
+---
+
+## 9. SECURITY (enforced invariants, not advice)
+
+```
+- No unauthenticated request proceeds past core/auth.
+- Permission check precedes every tool body.
+- Inputs validated before any side effect.
+- Secrets only from env; never logged; redacted from inputSummary.
+- Errors returned to client are safe codes (see §10); stack traces stay server-side.
+```
+
+---
+
+## 10. ERROR MODEL
+
+Normalized codes returned to client: `UNAUTHENTICATED | FORBIDDEN | VALIDATION_ERROR | INVALID_STATE | CONNECTOR_ERROR | INTERNAL`. Client never receives internal messages or stack traces.
+
+---
+
+## 11. SAMPLES (required, must run end-to-end)
+
+HR recruitment process (tools are coarse business actions — note the corrected granularity vs. raw technical steps):
+```
+processId: hr.recruitment
+tools:
+  submit_job_request        # creates instance → status: pending_manager_validation
+  generate_job_description  # AI draft + create doc; status unchanged (recommendation only)
+  approve_job_description    # role=manager; pending_manager_validation → approved (human checkpoint)
+  publish_job_opening        # appends sheet row + notifies; approved → published
+  update_candidate_status    # status transition with audit
+```
+Non-HR sample (operations or sales) implementing the same contract with ≥3 process tools and one human-validation checkpoint.
+
+> Tool names like `write_row`, `send_http_request`, `create_file`, `call_google_api` are PROHIBITED at the MCP surface. Such steps live inside services.
+
+---
+
+## 12. DEVELOPER TOOLING
+
+- `scripts/create-module.ts` → `create-module --domain hr --module recruitment` scaffolds the `modules/{domain}/{process}/` tree from `_template` with stub tool, schema, service, permissions, test, README.
+- Contract tests assert: every registered tool has a valid zod schema, a unique name, a permission scope, and (if `process`) a `statusAfterSuccess` ∈ `process.statuses`.
+- `report-maintenance.ts` emits:
+```json
+{ "standardVersion":"x.y.z", "mcpCompatibility":"ok|warning|error",
+  "connectors":"ok|warning|error", "modules":"ok|warning|error",
+  "blockingIssues":[], "recommendedActions":[] }
+```
+
+---
+
+## 13. VERSIONING
+
+Core and modules versioned independently (semver). Breaking core change requires a `STANDARD_CHANGELOG.md` migration note. Deprecated exports survive one minor version.
+
+---
+
+## 14. DEPLOYMENT
+
+```env
+NODE_ENV= PORT= MCP_SERVER_PUBLIC_URL= AUTH_MODE= API_KEY= COMPANY_CONFIG_PATH= LOG_LEVEL=
+# optional
+GOOGLE_SERVICE_ACCOUNT_JSON= GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= APPS_SCRIPT_WEBHOOK_URL=
+```
+
+---
+
+## 15. ACCEPTANCE (single authoritative list — V1 done when all pass)
+
+```
+1.  Server starts locally and in Docker.
+2.  MCP client discovers tools over streamable HTTP.
+3.  Core tools (§7) work.
+4.  create-module scaffolds a runnable module.
+5.  A company config loads; only its enabledModules' tools are exposed.
+6.  Unauthenticated → UNAUTHENTICATED; wrong role → FORBIDDEN; bad input → VALIDATION_ERROR.
+7.  Process tool rejected when currentStatus ∉ allowedStatusesBefore (INVALID_STATE).
+8.  Successful process tool updates status and writes an AuditEvent.
+9.  A human-validation checkpoint blocks AI auto-approval; only the validating role transitions it.
+10. Idempotent side-effect tool re-call returns the prior result, no duplicate side effect.
+11. Storage runs through StorageAdapter (Sheets reference impl), swappable without core edits.
+12. HR recruitment sample + one non-HR sample run end-to-end.
+13. Contract tests pass; maintenance report runs.
+14. README covers local run, Docker run, module creation, deployment.
+```
+
+---
+
+## OUT OF SCOPE (V1)
+Admin UI · workflow editor · billing · full OAuth · multi-tenant database · marketplace · production-grade Google connectors · the HR self-service/operations exposure split (future, non-binding).

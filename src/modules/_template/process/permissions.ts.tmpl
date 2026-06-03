@@ -1,0 +1,6 @@
+// Maps tool permission scopes to allowed roles (SPEC §5 step 2).
+import type { PermissionRule } from "../../../shared/types/contracts.js";
+
+export const __MODULE__Permissions: PermissionRule[] = [
+  { scope: "__MODULE_NAME__.submit", roles: ["admin"] },
+];

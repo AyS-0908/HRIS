@@ -1,0 +1,7 @@
+// zod schemas = single source of truth; MCP input_schema is derived (SPEC §1).
+import { z } from "zod";
+
+export const submitRequestInput = z.object({
+  title: z.string().min(1).describe("Short title for the request"),
+});
+export type SubmitRequestInput = z.infer<typeof submitRequestInput>;

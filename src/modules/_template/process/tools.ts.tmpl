@@ -1,0 +1,31 @@
+// Coarse business actions only — no technical step names at the MCP surface (SPEC §11).
+import type { ToolDefinition } from "../../../shared/types/contracts.js";
+import { submitRequestInput } from "./schemas.js";
+import { describeRequest } from "./service.js";
+
+export const PROCESS_ID = "__MODULE_NAME__";
+export const STATUS = { open: "open", closed: "closed" } as const;
+
+// Creator tool: starts the process instance.
+const submit: ToolDefinition = {
+  name: "__MODULE___submit",
+  description: "Submit a __MODULE__ request (starts the process).",
+  inputZod: submitRequestInput,
+  permissionScope: "__MODULE_NAME__.submit",
+  process: {
+    processId: PROCESS_ID,
+    allowedStatusesBefore: [], // creator: no prior instance
+    statusAfterSuccess: STATUS.open,
+    requiredRole: "admin",
+    sideEffects: [],
+    auditLevel: "standard",
+    idempotent: false,
+  },
+  async handler(_ctx, input, deps) {
+    const i = submitRequestInput.parse(input);
+    const { title } = await describeRequest(deps, i);
+    return { status: "success", data: { title }, traceIds: [] };
+  },
+};
+
+export const __MODULE__Tools: ToolDefinition[] = [submit];

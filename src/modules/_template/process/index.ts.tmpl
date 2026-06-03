@@ -1,0 +1,41 @@
+// Assembles the __MODULE_NAME__ module contract (SPEC §4.5).
+// To expose it: add `__MODULE__Module` to ALL_MODULES in src/app.ts, then enable
+// "__MODULE_NAME__" in a company config's enabledModules.
+import type {
+  HealthResult,
+  ModuleContract,
+  ProcessDefinition,
+  StatusModel,
+} from "../../../shared/types/contracts.js";
+import { __MODULE__Permissions } from "./permissions.js";
+import { PROCESS_ID, STATUS, __MODULE__Tools } from "./tools.js";
+
+const processDefinition: ProcessDefinition = {
+  processId: PROCESS_ID,
+  domain: "__DOMAIN__" as ProcessDefinition["domain"],
+  name: "__MODULE_NAME__",
+  version: "0.1.0",
+  steps: ["__MODULE___submit"],
+  statuses: [STATUS.open, STATUS.closed],
+  roles: ["admin"],
+  auditRequired: true,
+};
+
+const statusModel: StatusModel = {
+  initial: STATUS.open,
+  statuses: [STATUS.open, STATUS.closed],
+};
+
+export const __MODULE__Module: ModuleContract = {
+  moduleName: "__MODULE_NAME__",
+  moduleVersion: "0.1.0",
+  tools: __MODULE__Tools,
+  permissionRules: __MODULE__Permissions,
+  serviceBindings: {},
+  async healthCheck(): Promise<HealthResult> {
+    return { ok: true };
+  },
+  processDefinition,
+  statusModel,
+  storageBindings: {},
+};

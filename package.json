@@ -1,0 +1,35 @@
+{
+  "name": "mcp-custom-standard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reusable MCP server. Business logic plugs in as modules/processes via config + drop-in folders. Core code is never edited to onboard a company.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/server/index.js",
+    "dev": "tsx watch src/server/index.ts",
+    "test": "vitest run",
+    "test:contract": "vitest run tests/contract",
+    "create-module": "tsx scripts/create-module.ts",
+    "check-standard": "tsx scripts/check-standard.ts",
+    "report-maintenance": "tsx scripts/report-maintenance.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "express": "^4.21.2",
+    "yaml": "^2.6.1",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

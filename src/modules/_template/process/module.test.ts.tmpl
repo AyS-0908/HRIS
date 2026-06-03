@@ -1,0 +1,9 @@
+import { describe, it, expect } from "vitest";
+import { collectModuleErrors } from "../../../registry/validateModule.js";
+import { __MODULE__Module } from "./index.js";
+
+describe("__MODULE_NAME__ module", () => {
+  it("is a valid module contract", () => {
+    expect(collectModuleErrors(__MODULE__Module)).toEqual([]);
+  });
+});

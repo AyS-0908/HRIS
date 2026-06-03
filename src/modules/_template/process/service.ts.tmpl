@@ -1,0 +1,13 @@
+// Services own side effects: handlers call these, these call connectors (SPEC §0).
+// A handler never calls a connector directly. Wire connectors here as needed, e.g.:
+//   const { docId } = await deps.connectors.docs.createDocument({...}, deps.idempotencyKey);
+//   deps.recordExternal("docId", docId);
+import type { ServiceDeps } from "../../../shared/types/contracts.js";
+import type { SubmitRequestInput } from "./schemas.js";
+
+export async function describeRequest(
+  _deps: ServiceDeps,
+  input: SubmitRequestInput,
+): Promise<{ title: string }> {
+  return { title: input.title };
+}

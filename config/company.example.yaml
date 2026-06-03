@@ -1,0 +1,17 @@
+# Per-company wiring (SPEC §6). Validated by zod, fail-fast on unknown modules/roles.
+company:
+  id: acme
+  name: Acme Corp
+  enabledModules:
+    - hr.recruitment
+  roles:
+    - hr_admin
+    - manager
+    - employee
+resources:
+  googleDrive:
+    hrKnowledgeFolderId: ""
+  googleSheets:
+    hrRecruitmentSheetId: ""
+  googleDocs:
+    jobDescriptionTemplateId: ""

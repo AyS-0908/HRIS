@@ -1,0 +1,15 @@
+# Module: __MODULE_NAME__
+
+Scaffolded from `_template`. Coarse business actions only.
+
+## Tools
+
+| Tool | Role | Status before → after | Side effect |
+|---|---|---|---|
+| `__MODULE___submit` | admin | (none) → `open` | — (creates instance) |
+
+## Wire it up
+
+1. Add `__MODULE__Module` to `ALL_MODULES` in `src/app.ts`.
+2. Add `"__MODULE_NAME__"` to a company's `enabledModules` (and any new roles).
+3. Implement real side effects in `service.ts` (handlers call services, services call connectors).
