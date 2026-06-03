@@ -16,7 +16,8 @@
     "test:contract": "vitest run tests/contract",
     "create-module": "tsx scripts/create-module.ts",
     "check-standard": "tsx scripts/check-standard.ts",
-    "report-maintenance": "tsx scripts/report-maintenance.ts"
+    "report-maintenance": "tsx scripts/report-maintenance.ts",
+    "smoke:live": "node scripts/live-sheets-smoke-test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

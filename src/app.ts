@@ -13,6 +13,7 @@ import { InMemoryIdempotencyStore } from "./runtime/idempotencyStore.js";
 import { ProcessRuntime } from "./runtime/processRuntime.js";
 import { validateModule } from "./registry/validateModule.js";
 import { recruitmentModule } from "./modules/hr/recruitment/index.js";
+import { readFileSync } from "node:fs";
 
 export interface AppConfig {
   apiKey: string;
@@ -94,6 +95,17 @@ export function loadAppConfigFromEnv(): AppConfig {
     companyConfigPath: process.env.COMPANY_CONFIG_PATH ?? "config/company.example.yaml",
     logLevel: (process.env.LOG_LEVEL as AppConfig["logLevel"]) ?? "info",
     googleConnectors: process.env.GOOGLE_CONNECTORS === "live" ? "live" : "simulated",
-    serviceAccountJson: process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+    serviceAccountJson: resolveServiceAccountJson(),
   };
+}
+
+// The service-account JSON is multi-line (its private_key contains newlines), which
+// `node --env-file` cannot parse inline. Prefer a file path; fall back to inline JSON.
+function resolveServiceAccountJson(): string | undefined {
+  const file = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_FILE;
+  if (file && file.trim()) {
+    return readFileSync(file.trim(), "utf8");
+  }
+  const inline = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  return inline && inline.trim() ? inline : undefined;
 }

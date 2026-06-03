@@ -17,6 +17,8 @@ __pycache__/
 auth.json
 credentials.json
 secrets.json
+service-account.json
+service-account*.json
 
 # Build / OS
 dist/

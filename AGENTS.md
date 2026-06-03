@@ -4,39 +4,37 @@
 
 ---
 
-## Read order
+## Operating map
 
-1. `Progress.md` — current state and next action.
-2. This file — locked architecture + conventions for the repo.
-3. `Architecture.md` — only when system understanding is needed.
-4. `SPEC.md` — the AI-coder contract (read before implementing any type/schema).
+| Order | Source | Role | Read / use when | Conflict priority |
+|---:|---|---|---|---:|
+| 1 | `Progress.md` | Current state, next action, project memory | Start of every task and before stopping | 4 |
+| 2 | This file (`AGENTS.md`) | Locked repo architecture, conventions, operating rules | Start of every task | 2 |
+| 3 | `Architecture.md` | System structure and design context | Only when system understanding is needed | 5 |
+| 4 | `SPEC.md` | AI-coder contract: types, schemas, acceptance criteria | Before implementing any type/schema; for verification | 1 |
+| 5 | `C:\Users\aymar\.ai-agents\AGENTS-canonical.md` | Global coding, workflow, memory, communication rules | Always applies unless overridden by project/spec rules | 3 |
 
-## Docs map
+When sources conflict, lower `Conflict priority` number wins.
 
-- Current state: `Progress.md`
-- System structure: `Architecture.md`
-- Contract (types, schemas, acceptance): `SPEC.md`
-- Global rules (all agents/projects): `C:\Users\aymar\.ai-agents\AGENTS-canonical.md`
+Anything not specified anywhere = simplest correct option, noted in a code comment.
+
+## Agent ritual
+
+1. Read the required sources from the operating map.
+2. Work on one objective.
+3. Verify against `SPEC.md` §15 + contract tests.
+4. Update `Progress.md` before stopping.
+
 
 ## Commands
 
-- Install: `Not defined` (no code yet)
-- Start: `Not defined`
-- Build: `Not defined`
-- Test: `Not defined` (target: `tests/contract/` once scaffolded)
+- Install: `npm install`
+- Build: `npm run build` (typecheck only: `npm run typecheck`)
+- Start: `npm start` (or `node --env-file=.env dist/server/index.js`)
+- Test: `npm test` (contract only: `npm run test:contract`)
+- Live Sheets smoke: `npm run smoke:live` (requires `GOOGLE_CONNECTORS=live` + service account)
 - Verify: SPEC.md §15 acceptance list + contract tests
 
----
-
-## Source-of-truth precedence
-
-When sources conflict, follow this order:
-
-1. `SPEC.md` — the AI-CODER CONTRACT. TS signatures and YAML schemas are implemented exactly, never redesigned.
-2. This file — locked architecture + conventions for this repo.
-3. `C:\Users\aymar\.ai-agents\AGENTS-canonical.md` — canonical globals: coding principles, workflow, memory, communication.
-
-Anything not specified anywhere = simplest correct option, noted in a code comment.
 
 ---
 
@@ -66,7 +64,9 @@ Anything not specified anywhere = simplest correct option, noted in a code comme
 
 ## Runtime ordering (never reimplement in a handler)
 
-Status logic lives only in `processRuntime`. Handlers do not re-check auth, permissions, status gates, or idempotency — the runtime does, in the order fixed by the spec (§5). If a handler is duplicating any of those steps, that is a bug.
+- Status logic lives only in `processRuntime`. 
+- Handlers do not re-check auth, permissions, status gates, or idempotency — the runtime does, in the order fixed by the spec (§5). 
+- If a handler is duplicating any of those steps, that is a bug.
 
 ---
 
@@ -84,7 +84,8 @@ Status logic lives only in `processRuntime`. Handlers do not re-check auth, perm
 
 ## Project "done" delta
 
-Beyond the global definition-of-done (proof, not assumption): a change is done for this repo only when it also satisfies the relevant spec **acceptance items (§15)** and **contract tests pass** (`tests/contract/`). Treat the §15 list as the authoritative checkpoints — do not invent your own success criteria for spec work.
+- Beyond the global definition-of-done (proof, not assumption): a change is done for this repo only when it also satisfies the relevant spec **acceptance items (§15)** and **contract tests pass** (`tests/contract/`). 
+- Treat the §15 list as the authoritative checkpoints — do not invent your own success criteria for spec work.
 
 ---
 
@@ -95,11 +96,3 @@ Beyond the global definition-of-done (proof, not assumption): a change is done f
 - `[Assumed]` in the spec (e.g. header-based identity) marks an unresolved decision — keep the resolved fields stable; only the extraction may change.
 
 ---
-
-## Agent ritual
-
-1. Read this file.
-2. Read `Progress.md`.
-3. Work on one objective.
-4. Verify against SPEC.md §15 + contract tests.
-5. Update `Progress.md` before stopping.

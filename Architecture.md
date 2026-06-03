@@ -15,13 +15,6 @@ A reusable MCP server. Core code is generic; business logic plugs in as **module
 - `storage/`: `StorageAdapter` interface + Sheets reference impl.
 - `config/`: per-company YAML wiring, validated by zod.
 
-## Important paths
-
-- `runtime/processRuntime.ts`: enforces the fixed execution order (SPEC §5). Do not reimplement in handlers.
-- `core/auth/`: resolves `RequestContext` once; only source of identity.
-- `storage/storageAdapter.ts`: backend is pluggable; core depends on the interface only.
-- `config/company.<id>.yaml`: enables modules + roles per company.
-
 ## Data flow
 
 1. MCP client request → transport (streamable HTTP).
@@ -38,12 +31,6 @@ A reusable MCP server. Core code is generic; business logic plugs in as **module
 
 ## Constraints
 
-- Strict top-down layering: `client → transport → core → runtime → module → service → connector`.
-- zod is the single schema source; MCP `input_schema` is derived from it.
-- Human validation = an explicit status transition; AI never auto-validates.
-- See `AGENTS.md` "Locked architecture" for the full enforceable list.
+Enforceable constraints live in `AGENTS.md` "Locked architecture"; this file is only the compact system map.
 
-## Known risks
-
-- Google auth is out of V1 scope — non-Sheets connectors are not production-ready.
-- Header-based identity is `[Assumed]` in the spec; extraction may change, resolved fields must not.
+---

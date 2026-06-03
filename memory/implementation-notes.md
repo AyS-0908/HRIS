@@ -23,6 +23,14 @@ Compact log of decisions/changes not in SPEC.md. AI-native, terse.
 - Target sheet must have a `rec_jobDesc` tab; share it with the SA `client_email`. Test sheet id wired in `config/company.example.yaml`.
 - Connector failures now mapped to `CONNECTOR_ERROR` in `service.ts` (was INTERNAL).
 - Sheets append is not natively idempotent; dedup relies on the runtime idempotency store.
+- Credentials loading: the SA JSON is multi-line (private_key newlines), which `node --env-file`
+  cannot parse inline (only reads the first line `{`). `loadAppConfigFromEnv` now resolves via
+  `GOOGLE_SERVICE_ACCOUNT_JSON_FILE` (path, preferred) → falls back to inline
+  `GOOGLE_SERVICE_ACCOUNT_JSON`. Key file `service-account.json` is git-ignored.
+- VERIFIED live (2026-06-03): `approve_job_description` wrote real rows (`rec_jobDesc!A3:E3` via
+  HTTP, `A4:E4` via `npm run smoke:live`), re-read and matched expected id|titre|mgr|url|status.
+  The live connector returns the Sheets API `updatedRange` (A1 notation) as the rowId/traceId —
+  distinguishable from the simulated connector's hash id.
 
 ## Tradeoffs
 - SPEC §5 orders status-gate (step 4) BEFORE idempotency (step 5). Consequence: re-calling a transitioning tool after success hits INVALID_STATE, not the idempotent short-circuit. Idempotency therefore meaningfully applies to non-transitioning idempotent tools (e.g. `generate_job_description`, status unchanged). Implemented as specified.

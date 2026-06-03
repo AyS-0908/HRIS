@@ -61,17 +61,22 @@ npm run report-maintenance  # emit the maintenance JSON report (SPEC §12)
 By default all Google connectors are **simulated**. To write real rows to the
 `rec_jobDesc` tab via `approve_job_description`:
 
-1. Create a Google **service account** and download its JSON key.
+1. Create a Google **service account** and download its JSON key (e.g. `service-account.json`, gitignored).
 2. **Share** the target spreadsheet with the service account's `client_email` (Editor).
 3. Ensure the sheet has a tab named **`rec_jobDesc`** with columns: `id | titre | mgr | url | status`.
 4. Set the spreadsheet id in your company config (`resources.googleSheets.hrRecruitmentSheetId`).
-5. Run with:
+5. In `.env` set `GOOGLE_CONNECTORS=live` and point to the key **file**:
 
 ```bash
-GOOGLE_CONNECTORS=live \
-GOOGLE_SERVICE_ACCOUNT_JSON='<full service-account JSON on one line>' \
-npm start
+GOOGLE_CONNECTORS=live
+GOOGLE_SERVICE_ACCOUNT_JSON_FILE=service-account.json
 ```
+
+Then `npm run build && node --env-file=.env dist/server/index.js`.
+
+> The service-account JSON is multi-line (its `private_key` contains newlines), which
+> `node --env-file` cannot parse inline — always use `GOOGLE_SERVICE_ACCOUNT_JSON_FILE`.
+> `GOOGLE_SERVICE_ACCOUNT_JSON` (single-line inline) remains as a fallback.
 
 Only the Sheets connector goes live; Docs/Drive remain simulated until wired.
 
