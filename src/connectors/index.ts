@@ -2,6 +2,7 @@
 // or simulated; the rest are simulated skeletons in V1.
 import type { Connectors, Logger } from "../shared/types/contracts.js";
 import { createDocsConnector } from "./google/docs.js";
+import { createDocsConnectorLive } from "./google/docsLive.js";
 import { createSheetsConnector } from "./google/sheets.js";
 import { createSheetsConnectorLive } from "./google/sheetsLive.js";
 import { createDriveConnector } from "./google/drive.js";
@@ -14,6 +15,10 @@ import { createWebhookConnector } from "./generic/webhook.js";
 export interface ConnectorOptions {
   googleMode: "simulated" | "live";
   serviceAccountJson?: string;
+  // Per-company Docs template + shared Drive folder. When both are present in live mode,
+  // the Docs connector runs live (real Google Doc); otherwise it stays simulated.
+  docsTemplateId?: string;
+  docsFolderId?: string;
 }
 
 export function buildConnectors(logger: Logger, options: ConnectorOptions): Connectors {
@@ -23,8 +28,16 @@ export function buildConnectors(logger: Logger, options: ConnectorOptions): Conn
       "GOOGLE_CONNECTORS=live requires a service account (set GOOGLE_SERVICE_ACCOUNT_JSON_FILE or GOOGLE_SERVICE_ACCOUNT_JSON)",
     );
   }
+  // Docs goes live only when a template + folder are configured. Absent ⇒ simulated,
+  // so a live deployment without Docs config keeps the current (simulated) behavior.
+  const liveDocs = liveSheets && !!options.docsTemplateId && !!options.docsFolderId;
   return {
-    docs: createDocsConnector(logger), // simulated in V1
+    docs: liveDocs
+      ? createDocsConnectorLive(logger, options.serviceAccountJson!, {
+          templateId: options.docsTemplateId!,
+          folderId: options.docsFolderId!,
+        })
+      : createDocsConnector(logger), // simulated default
     sheets: liveSheets
       ? createSheetsConnectorLive(logger, options.serviceAccountJson!)
       : createSheetsConnector(logger),

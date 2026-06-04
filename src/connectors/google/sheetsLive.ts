@@ -34,5 +34,23 @@ export function createSheetsConnectorLive(logger: Logger, serviceAccountJson: st
       logger.info("connector.sheets.appendRow (live)", { rowId, sheetId: input.sheetId, tab: input.tab, idempotencyKey });
       return { rowId };
     },
+    async getValues(input) {
+      // A missing tab/range returns a 400 from the API; treat any read failure as "no
+      // values" so the policy loader falls back to defaults (anti-regression).
+      const url =
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.sheetId)}` +
+        `/values/${encodeURIComponent(input.range)}`;
+      try {
+        const res = await client.request<{ values?: string[][] }>({ url, method: "GET" });
+        return { values: res.data?.values ?? [] };
+      } catch (e) {
+        logger.warn("connector.sheets.getValues (live) read failed; defaulting to empty", {
+          sheetId: input.sheetId,
+          range: input.range,
+          err: String(e),
+        });
+        return { values: [] };
+      }
+    },
   };
 }

@@ -64,9 +64,14 @@ export function buildApp(config: AppConfig): App {
   const tools = new ToolRegistry(modules);
   const processes = new ProcessRegistry(modules);
 
+  // Docs live config is per-company; V1 uses the first company's resources (mirrors how
+  // Sheets storage reuses the first company's spreadsheet). Absent ⇒ Docs stays simulated.
+  const firstCompanyResources = companies.list()[0]?.resources;
   const connectors = buildConnectors(logger, {
     googleMode: config.googleConnectors,
     serviceAccountJson: config.serviceAccountJson,
+    docsTemplateId: firstCompanyResources?.googleDocs?.jobDescriptionTemplateId || undefined,
+    docsFolderId: firstCompanyResources?.googleDrive?.hrKnowledgeFolderId || undefined,
   });
   // Sheets storage reuses the first company's recruitment spreadsheet (its proc_state /
   // proc_audit tabs). Records carry companyId, so one sheet serves all companies (V1).
@@ -76,7 +81,14 @@ export function buildApp(config: AppConfig): App {
     sheetId: companies.list()[0]?.resources.googleSheets?.hrRecruitmentSheetId,
   });
   const idempotency = new InMemoryIdempotencyStore();
-  const runtime = new ProcessRuntime({ storage, connectors, logger, idempotency, companies });
+  const runtime = new ProcessRuntime({
+    storage,
+    connectors,
+    logger,
+    idempotency,
+    companies,
+    googleMode: config.googleConnectors,
+  });
 
   const enabledModuleNames = (companyId: string): Set<string> => {
     const c = companies.get(companyId);

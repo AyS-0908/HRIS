@@ -1,0 +1,74 @@
+// Anti-regression guard for live Docs config (plan 1b/1c). In live mode:
+//  - both template + folder absent  ⇒ Docs stays simulated, generate succeeds (opt-out).
+//  - exactly one present (XOR)       ⇒ generate fails VALIDATION_ERROR (misconfiguration).
+// Uses a fake service account: no live API call happens on these paths (the simulated Docs
+// connector is used, and the guard throws before any Sheets call).
+import { describe, it, expect } from "vitest";
+import { buildApp, type App } from "../../src/app.js";
+import type { RequestContext } from "../../src/shared/types/contracts.js";
+import { AppError } from "../../src/core/errors/appError.js";
+
+const FAKE_SA = JSON.stringify({ client_email: "svc@example.iam.gserviceaccount.com", private_key: "fake" });
+const ctx: RequestContext = { companyId: "acme", actorId: "u1", actorRole: "manager", apiKeyId: "test" };
+
+const resolve = (app: App, name: string) => {
+  const r = app.tools.resolve(name);
+  if (!r) throw new Error(`tool not found: ${name}`);
+  return r;
+};
+
+async function codeOf(p: Promise<unknown>): Promise<string> {
+  try {
+    await p;
+    return "<no-throw>";
+  } catch (e) {
+    return e instanceof AppError ? e.code : "<non-app-error>";
+  }
+}
+
+function liveApp(companyConfigPath: string): App {
+  return buildApp({
+    apiKey: "test",
+    companyConfigPath,
+    logLevel: "error",
+    googleConnectors: "live",
+    storageBackend: "memory",
+    serviceAccountJson: FAKE_SA,
+  });
+}
+
+async function startInstance(app: App): Promise<string> {
+  const submit = await app.runtime.execute(resolve(app, "submit_job_request"), ctx, {
+    title: "Role",
+    justification: "j",
+    plannedHire: true,
+  });
+  return submit.data.processInstanceId as string;
+}
+
+describe("live Docs config guard", () => {
+  it("both template+folder absent ⇒ Docs simulated, generate succeeds in live mode", async () => {
+    const app = liveApp("config/company.example.yaml"); // both ids are ""
+    const id = await startInstance(app);
+    const gen = await app.runtime.execute(resolve(app, "generate_job_description"), ctx, {
+      processInstanceId: id,
+      idempotencyKey: "g1",
+      targetSummary: "x",
+    });
+    expect(gen.status).toBe("success");
+    expect(gen.data.url).toBeTruthy();
+  });
+
+  it("only template set (XOR) ⇒ VALIDATION_ERROR with a clear message", async () => {
+    const app = liveApp("tests/fixtures/company.docs-partial.yaml");
+    const id = await startInstance(app);
+    const code = await codeOf(
+      app.runtime.execute(resolve(app, "generate_job_description"), ctx, {
+        processInstanceId: id,
+        idempotencyKey: "g2",
+        targetSummary: "x",
+      }),
+    );
+    expect(code).toBe("VALIDATION_ERROR");
+  });
+});

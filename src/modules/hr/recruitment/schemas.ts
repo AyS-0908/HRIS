@@ -16,6 +16,9 @@ export const generateJobDescriptionInput = z.object({
   idempotencyKey: z.string().min(1).describe("Dedup key for the doc creation side effect"),
   roadmapUrl: z.string().optional().describe("Manager roadmap doc/URL (context)"),
   targetSummary: z.string().min(1).describe("Summary of the target role to draft"),
+  // Optional chatbot-authored body injected into the {{BODY}} placeholder of the
+  // company's template. Additive/back-compatible: absent ⇒ a body is composed locally.
+  draftBody: z.string().optional().describe("Drafted job-description body (chatbot-authored)"),
 });
 export type GenerateJobDescriptionInput = z.infer<typeof generateJobDescriptionInput>;
 
@@ -24,6 +27,11 @@ export const approveJobDescriptionInput = z.object({
   processInstanceId: z.string().min(1),
   idempotencyKey: z.string().min(1).describe("Dedup key for the sheet-row side effect"),
   jobTitle: z.string().min(1),
-  docUrl: z.string().min(1).describe("URL of the validated job description doc"),
+  // Optional manual override. The trusted URL normally flows from the generate step via the
+  // process state (externalReferences.docUrl); supplying it here overrides that (plan 1d).
+  docUrl: z.string().min(1).optional().describe("Override URL of the validated job description doc"),
+  // Optional proof-of-need document, required only when the company policy sets
+  // requireProofDoc (plan 1e). Absent policy ⇒ not required (current behavior).
+  proofDocUrl: z.string().min(1).optional().describe("URL of a supporting/proof document"),
 });
 export type ApproveJobDescriptionInput = z.infer<typeof approveJobDescriptionInput>;

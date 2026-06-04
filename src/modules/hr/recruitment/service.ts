@@ -1,7 +1,7 @@
 // Services own the side effects: handlers call these, these call connectors
 // (SPEC §0, §11). A handler never calls a connector directly.
 import type { ServiceDeps } from "../../../shared/types/contracts.js";
-import { connectorError } from "../../../core/errors/appError.js";
+import { connectorError, validationError } from "../../../core/errors/appError.js";
 import type {
   ApproveJobDescriptionInput,
   GenerateJobDescriptionInput,
@@ -9,9 +9,11 @@ import type {
 
 export const REC_JOBDESC_TAB = "rec_jobDesc";
 
-// Composes a draft body. The conversational AI authoring happens chatbot-side;
-// here we assemble the document the manager will review/correct in GDocs.
+// Composes a draft body when the chatbot did not author one. The conversational AI
+// authoring happens chatbot-side (input.draftBody); this is the local fallback that
+// keeps the simulated path self-contained.
 function buildDraftBody(input: GenerateJobDescriptionInput): string {
+  if (input.draftBody && input.draftBody.trim()) return input.draftBody;
   return [
     `# Job description`,
     ``,
@@ -27,10 +29,24 @@ export async function draftJobDescriptionDoc(
   input: GenerateJobDescriptionInput,
   title: string,
 ): Promise<{ docId: string; url: string }> {
+  // Per-company Docs template + shared Drive folder (plan 1b/1c). Live Docs needs BOTH:
+  //  - both present  ⇒ the connector runs live (real shared doc).
+  //  - both absent   ⇒ Docs stays simulated even in live mode (anti-regression: opting out).
+  //  - exactly one   ⇒ a genuine misconfiguration → fail with a clear, actionable message
+  //    rather than silently producing a dead simulated URL.
+  const templateId = deps.resources.googleDocs?.jobDescriptionTemplateId || undefined;
+  const folderId = deps.resources.googleDrive?.hrKnowledgeFolderId || undefined;
+  if (deps.googleMode === "live" && !!templateId !== !!folderId) {
+    throw validationError(
+      "recruitment Docs config incomplete: set BOTH resources.googleDocs.jobDescriptionTemplateId " +
+        "and resources.googleDrive.hrKnowledgeFolderId (or neither) to create a real shared job-description doc",
+    );
+  }
+
   let res: { docId: string; url: string };
   try {
     res = await deps.connectors.docs.createDocument(
-      { title: `Job description — ${title}`, content: buildDraftBody(input) },
+      { templateId, title: `Job description — ${title}`, content: buildDraftBody(input) },
       deps.idempotencyKey,
     );
   } catch (e) {
@@ -38,6 +54,9 @@ export async function draftJobDescriptionDoc(
     throw connectorError("failed to create job description document");
   }
   deps.recordExternal("docId", res.docId);
+  // Persist the REAL url through the process state so approve_job_description can read it
+  // (plan 1d) instead of trusting a client-supplied docUrl.
+  deps.recordExternal("docUrl", res.url);
   return res;
 }
 
@@ -48,6 +67,10 @@ export async function appendRecJobDescRow(
   input: ApproveJobDescriptionInput,
 ): Promise<{ rowId: string }> {
   const sheetId = deps.resources.googleSheets?.hrRecruitmentSheetId ?? "simulated-sheet";
+  // In the normal flow the chatbot omits docUrl, so the trusted URL produced by the
+  // generate step (persisted in the process state) is used. An explicit input.docUrl is a
+  // manual override escape hatch. Falls back to empty if neither is present (plan 1d).
+  const docUrl = input.docUrl ?? deps.process.externalReferences?.docUrl ?? "";
   let res: { rowId: string };
   try {
     res = await deps.connectors.sheets.appendRow(
@@ -58,7 +81,7 @@ export async function appendRecJobDescRow(
           id: deps.process.processInstanceId,
           titre: input.jobTitle,
           mgr: deps.ctx.actorId,
-          url: input.docUrl,
+          url: docUrl,
           status: "approved",
         },
       },

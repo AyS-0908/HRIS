@@ -1,6 +1,8 @@
 // HR recruitment "Fiche poste" tools (SPEC §11). Coarse business actions only —
 // no technical step names at the MCP surface.
+import { z } from "zod";
 import type { ToolDefinition } from "../../../shared/types/contracts.js";
+import { validationError } from "../../../core/errors/appError.js";
 import {
   approveJobDescriptionInput,
   generateJobDescriptionInput,
@@ -10,6 +12,7 @@ import {
   type SubmitJobRequestInput,
 } from "./schemas.js";
 import { appendRecJobDescRow, draftJobDescriptionDoc } from "./service.js";
+import { resolveRecruitmentPolicy } from "./policy.js";
 
 export const PROCESS_ID = "hr.recruitment";
 export const STATUS = {
@@ -82,8 +85,29 @@ const approveJobDescription: ToolDefinition = {
   },
   async handler(_ctx, input, deps) {
     const i = input as ApproveJobDescriptionInput;
+    // Company policy enforcement (plan 1e): the MCP applies the process policy. The Sheet's
+    // Config tab may require a proof document; identity/roles stay in server config.
+    const policy = await resolveRecruitmentPolicy(deps);
+    if (policy.requireProofDoc && !i.proofDocUrl) {
+      throw validationError("company policy requires a proof document (set proofDocUrl)");
+    }
     const { rowId } = await appendRecJobDescRow(deps, i);
     return { status: "success", data: { rowId }, traceIds: [rowId] };
+  },
+};
+
+// Read-only query tool (no process binding): lets a policy-aware Skill discover what to ask
+// before driving the flow. Resolved + cached from the company's Config tab (plan 1e/1f).
+const getRecruitmentPolicy: ToolDefinition = {
+  name: "get_recruitment_policy",
+  description:
+    "Returns the company's resolved recruitment process policy (which questions/proof docs are required) so a client can adapt its dialogue.",
+  inputZod: z.object({}),
+  permissionScope: "hr.recruitment.policy.read",
+  // no `process` binding ⇒ runtime treats it as a read-only query tool.
+  async handler(_ctx, _input, deps) {
+    const policy = await resolveRecruitmentPolicy(deps);
+    return { status: "success", data: { policy }, traceIds: [] };
   },
 };
 
@@ -91,4 +115,5 @@ export const recruitmentTools: ToolDefinition[] = [
   submitJobRequest,
   generateJobDescription,
   approveJobDescription,
+  getRecruitmentPolicy,
 ];

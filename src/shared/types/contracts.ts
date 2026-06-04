@@ -49,6 +49,10 @@ export interface SheetsConnector extends Connector {
     input: { sheetId: string; tab: string; values: Record<string, string> },
     idempotencyKey: string,
   ): Promise<{ rowId: string }>;
+  // Reads a rectangular range of cells (e.g. a "Config" key/value tab). Returns rows of
+  // string cells. Simulated connector returns []; live reads via the Sheets API. A missing
+  // tab/range yields [] (not an error) so callers can fall back to defaults.
+  getValues(input: { sheetId: string; range: string }): Promise<{ values: string[][] }>;
 }
 export interface DriveConnector extends Connector {
   // Reads text from a Drive file by id or URL (used by chatbot-side flows).
@@ -127,7 +131,11 @@ export interface StorageAdapter {
     patch: Pick<
       ProcessState,
       "currentStatus" | "currentStep" | "lastToolCalled"
-    >,
+    > & {
+      // Optional: merged external reference ids to persist (e.g. docUrl) so later steps
+      // in the same process can read them. Absent ⇒ existing references are preserved.
+      externalReferences?: Record<string, string>;
+    },
   ): Promise<ProcessState>;
   appendAudit(e: AuditEvent): Promise<void>;
 }
@@ -178,6 +186,10 @@ export interface ServiceDeps {
   process: ProcessState; // the loaded/created instance for this call
   // Per-company resource ids (e.g. googleSheets.hrRecruitmentSheetId), from config.
   resources: Record<string, Record<string, string> | undefined>;
+  // Connector mode for this deployment. Lets a service emit a precise "config incomplete"
+  // message in live mode instead of silently producing a simulated artifact. Defaults to
+  // "simulated" when unset (back-compatible).
+  googleMode: "simulated" | "live";
 }
 
 export interface ToolProcessBinding {

@@ -5,4 +5,5 @@ export const recruitmentPermissions: PermissionRule[] = [
   { scope: "hr.recruitment.submit", roles: ["manager"] },
   { scope: "hr.recruitment.generate", roles: ["manager", "hr_admin"] },
   { scope: "hr.recruitment.approve", roles: ["manager"] },
+  { scope: "hr.recruitment.policy.read", roles: ["manager", "hr_admin"] },
 ];

@@ -32,6 +32,8 @@ export interface RuntimeDeps {
   logger: Logger;
   idempotency: IdempotencyStore;
   companies: CompanyRegistry;
+  // Connector mode, threaded to services via ServiceDeps. Defaults to "simulated".
+  googleMode?: "simulated" | "live";
 }
 
 const LEVEL_ORDER: Record<AuditLevel, number> = { none: 0, standard: 1, strict: 2 };
@@ -52,8 +54,11 @@ export class ProcessRuntime {
     const { tool, module } = resolved;
     const pb = tool.process;
     if (!pb) {
-      // V1: every business tool is a process tool. Core tools bypass the runtime.
-      throw internalError(`tool ${tool.name} has no process binding`);
+      // Non-process query tool (read-only, e.g. get_recruitment_policy): no instance, no
+      // status gate, no idempotency, no audit. Authentication already happened at the
+      // server boundary; we still enforce permission + input validation, then run the
+      // handler. The process tools never reach this path (they all carry a binding).
+      return await this.executeQueryTool(resolved, ctx, rawInput);
     }
     const auditRequired = module.processDefinition?.auditRequired ?? false;
     const effectiveLevel = maxLevel(pb.auditLevel, auditRequired ? "standard" : "none");
@@ -151,15 +156,22 @@ export class ProcessRuntime {
         ctx,
         process: instance,
         resources: this.deps.companies.get(ctx.companyId)?.resources ?? {},
+        googleMode: this.deps.googleMode ?? "simulated",
       };
       const handlerResult = await tool.handler(ctx, input, sdeps);
 
-      // 7. on success, update status (creator already created at target status)
+      // 7. on success, update status (creator already created at target status). Merge any
+      // external ids recorded by the handler into the persisted externalReferences so later
+      // steps in the same process can read them (e.g. the real docUrl at approve time).
       if (handlerResult.status === "success" && !isCreator) {
+        const hasOutputs = Object.keys(externalOutputs).length > 0;
         instance = await this.deps.storage.updateStatus(ctx.companyId, instance.processInstanceId, {
           currentStatus: pb.statusAfterSuccess,
           currentStep: tool.name,
           lastToolCalled: tool.name,
+          ...(hasOutputs
+            ? { externalReferences: { ...instance.externalReferences, ...externalOutputs } }
+            : {}),
         });
         statusAfter = instance.currentStatus;
       }
@@ -222,5 +234,46 @@ export class ProcessRuntime {
         }
       }
     }
+  }
+
+  // Read-only query tools (no process binding). Permission + input validation only; the
+  // handler gets a ServiceDeps with a placeholder process (it never reads instance state).
+  private async executeQueryTool(
+    resolved: ResolvedTool,
+    ctx: RequestContext,
+    rawInput: unknown,
+  ): Promise<ToolResult> {
+    const { tool, module } = resolved;
+    assertPermission(tool.permissionScope, ctx.actorRole, module.permissionRules);
+    const parsed = tool.inputZod.safeParse(rawInput);
+    if (!parsed.success) {
+      throw validationError(`invalid input for ${tool.name}`, parsed.error.flatten());
+    }
+    const placeholder: ProcessState = {
+      processInstanceId: "",
+      processId: "",
+      companyId: ctx.companyId,
+      currentStatus: "",
+      currentStep: "",
+      createdBy: ctx.actorId,
+      createdAt: "",
+      updatedAt: "",
+      lastToolCalled: tool.name,
+      externalReferences: {},
+      auditLogId: "",
+    };
+    const sdeps: ServiceDeps = {
+      storage: this.deps.storage,
+      connectors: this.deps.connectors,
+      services: module.serviceBindings,
+      logger: this.deps.logger,
+      recordExternal: () => {},
+      idempotencyKey: "",
+      ctx,
+      process: placeholder,
+      resources: this.deps.companies.get(ctx.companyId)?.resources ?? {},
+      googleMode: this.deps.googleMode ?? "simulated",
+    };
+    return await tool.handler(ctx, parsed.data, sdeps);
   }
 }

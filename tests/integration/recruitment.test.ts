@@ -126,6 +126,40 @@ describe("hr.recruitment Fiche poste", () => {
     expect(code).toBe("INVALID_STATE");
   });
 
+  it("flows the trusted generated URL via process state when approve omits docUrl (1d)", async () => {
+    const submit = await app.runtime.execute(resolve(app, "submit_job_request"), ctx("manager"), {
+      title: "Role",
+      justification: "j",
+      plannedHire: true,
+    });
+    const id = submit.data.processInstanceId as string;
+    const gen = await app.runtime.execute(resolve(app, "generate_job_description"), ctx("manager"), {
+      processInstanceId: id,
+      idempotencyKey: "gen-url",
+      targetSummary: "x",
+    });
+    const generatedUrl = gen.data.url as string;
+    // approve without supplying docUrl — the trusted URL must come from the process state.
+    const approve = await app.runtime.execute(resolve(app, "approve_job_description"), ctx("manager"), {
+      processInstanceId: id,
+      idempotencyKey: "appr-url",
+      jobTitle: "Role",
+    });
+    expect(approve.status).toBe("success");
+    const persisted = await app.storage.getInstance("acme", id);
+    expect(persisted?.externalReferences.docUrl).toBe(generatedUrl);
+  });
+
+  it("get_recruitment_policy returns the default policy in simulated mode (1e)", async () => {
+    const res = await app.runtime.execute(resolve(app, "get_recruitment_policy"), ctx("manager"), {});
+    expect(res.status).toBe("success");
+    expect(res.data.policy).toEqual({
+      requireJustification: false,
+      requireProofDoc: false,
+      extraValidationStep: false,
+    });
+  });
+
   it("idempotent re-call returns the prior result without a duplicate side effect", async () => {
     const submit = await app.runtime.execute(resolve(app, "submit_job_request"), ctx("manager"), {
       title: "Role",

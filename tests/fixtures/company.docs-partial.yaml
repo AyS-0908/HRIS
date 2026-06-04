@@ -1,0 +1,18 @@
+# Fixture: live Docs misconfiguration — template set, folder empty (XOR). Used to assert the
+# service's "Docs config incomplete" guard. Not a real tenant.
+company:
+  id: acme
+  name: Acme Corp
+  enabledModules:
+    - hr.recruitment
+  roles:
+    - hr_admin
+    - manager
+    - employee
+resources:
+  googleDrive:
+    hrKnowledgeFolderId: ""
+  googleSheets:
+    hrRecruitmentSheetId: "fixture-sheet"
+  googleDocs:
+    jobDescriptionTemplateId: "template-only-no-folder"

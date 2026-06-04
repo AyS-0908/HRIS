@@ -19,5 +19,10 @@ export function createSheetsConnector(logger: Logger): SheetsConnector {
       });
       return { rowId };
     },
+    async getValues(input) {
+      // Simulated: no Config tab exists ⇒ empty ⇒ callers fall back to default policy.
+      logger.info("connector.sheets.getValues (simulated)", { sheetId: input.sheetId, range: input.range });
+      return { values: [] };
+    },
   };
 }
