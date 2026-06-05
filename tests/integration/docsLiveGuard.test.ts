@@ -48,7 +48,7 @@ async function startInstance(app: App): Promise<string> {
 
 describe("live Docs config guard", () => {
   it("both template+folder absent ⇒ Docs simulated, generate succeeds in live mode", async () => {
-    const app = liveApp("config/company.example.yaml"); // both ids are ""
+    const app = liveApp("tests/fixtures/company.docs-none.yaml"); // both Docs ids ""
     const id = await startInstance(app);
     const gen = await app.runtime.execute(resolve(app, "generate_job_description"), ctx, {
       processInstanceId: id,

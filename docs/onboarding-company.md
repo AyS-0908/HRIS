@@ -103,4 +103,26 @@ Set **both** ids or **neither**. With both absent, Docs stays simulated even in 
 `VALIDATION_ERROR` ("recruitment Docs config incomplete …") rather than producing a dead
 simulated URL. Without `GOOGLE_CONNECTORS=live`, everything stays simulated (the default).
 
+### Doc creation: who owns the file (two auth modes)
+
+Creating a Doc creates a **new file that must have an owner with Drive quota**. A service
+account has **no Drive quota**, so it can only own files inside a **Shared Drive**. Pick the
+mode that matches the company's Google account:
+
+| Account | Mode | Setup |
+| --- | --- | --- |
+| **Google Workspace** | Service account (default) | Put the template + destination folder in a **Shared Drive**; add the service-account email as **Content Manager**. No env change. |
+| **Personal Gmail** (no Shared Drive) | **OAuth user-delegation** | The Doc is created/owned by the consenting user. Run `npm run oauth-token` once and set `GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN` in `.env` (see [.env.example](../.env.example)). |
+
+Sheets is unaffected either way — editing an existing spreadsheet needs no quota, so it
+always uses the service account. OAuth mode activates only when all three `GOOGLE_OAUTH_*`
+vars are set; otherwise the service account is used.
+
+**OAuth one-time setup (personal Gmail):**
+1. GCP Console → enable **Google Drive API** + **Google Docs API**.
+2. Credentials → **Create OAuth client ID → Desktop app** → note client id + secret.
+3. OAuth consent screen → External → add your Google account as a **Test user**.
+4. `GOOGLE_OAUTH_CLIENT_ID=… GOOGLE_OAUTH_CLIENT_SECRET=… npm run oauth-token` → open the
+   printed URL, approve, copy the printed `GOOGLE_OAUTH_REFRESH_TOKEN` into `.env`.
+
 See [pilot-access.md](pilot-access.md) for how a pilot DRH connects.

@@ -17,6 +17,7 @@
     "create-module": "tsx scripts/create-module.ts",
     "create-company": "tsx scripts/create-company.ts",
     "setup-company-sheet": "tsx scripts/setup-company-sheet.ts",
+    "oauth-token": "node scripts/get-oauth-token.mjs",
     "check-standard": "tsx scripts/check-standard.ts",
     "report-maintenance": "tsx scripts/report-maintenance.ts",
     "smoke:live": "node scripts/live-sheets-smoke-test.mjs"

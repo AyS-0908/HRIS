@@ -11,10 +11,9 @@
 //
 // Raw provider errors are re-typed CONNECTOR_ERROR (same boundary discipline as
 // sheetsLive.ts / sheetsStorageAdapter.ts) — no provider type leaks to clients.
-import type { JWT } from "google-auth-library";
+import type { OAuth2Client } from "google-auth-library";
 import type { DocsConnector, HealthResult, Logger } from "../../shared/types/contracts.js";
 import { connectorError } from "../../core/errors/appError.js";
-import { createDocsDriveJwt } from "./auth.js";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
 const DOCS_API = "https://docs.googleapis.com/v1/documents";
@@ -26,19 +25,20 @@ export interface DocsLiveOptions {
   folderId: string;
 }
 
+// `client` is either a service-account JWT or an OAuth user-delegation client (both are
+// OAuth2Client); the connector is agnostic. `authLabel` is for health reporting only.
 export function createDocsConnectorLive(
   logger: Logger,
-  serviceAccountJson: string,
+  client: OAuth2Client,
   options: DocsLiveOptions,
+  authLabel: string,
 ): DocsConnector {
-  const { client, clientEmail } = createDocsDriveJwt(serviceAccountJson);
-
   return {
     name: "google.docs",
     async healthCheck(): Promise<HealthResult> {
       try {
-        await client.authorize();
-        return { ok: true, detail: `live as ${clientEmail}` };
+        await client.getAccessToken();
+        return { ok: true, detail: `live (${authLabel})` };
       } catch (e) {
         return { ok: false, detail: `auth failed: ${String(e)}` };
       }
@@ -75,7 +75,7 @@ export function createDocsConnectorLive(
   };
 }
 
-async function copyTemplate(client: JWT, templateId: string, folderId: string, name: string): Promise<string> {
+async function copyTemplate(client: OAuth2Client, templateId: string, folderId: string, name: string): Promise<string> {
   const url = `${DRIVE_API}/${encodeURIComponent(templateId)}/copy?supportsAllDrives=true`;
   const res = await request<{ id?: string }>(client, {
     url,
@@ -88,7 +88,7 @@ async function copyTemplate(client: JWT, templateId: string, folderId: string, n
 }
 
 async function replacePlaceholders(
-  client: JWT,
+  client: OAuth2Client,
   docId: string,
   replacements: Record<string, string>,
 ): Promise<void> {
@@ -105,8 +105,8 @@ async function replacePlaceholders(
 // Single egress point to the Google APIs. Errors propagate to createDocument's catch,
 // which logs once and re-wraps as CONNECTOR_ERROR (no provider type leaks to clients).
 async function request<T = unknown>(
-  client: JWT,
-  config: Parameters<JWT["request"]>[0],
+  client: OAuth2Client,
+  config: Parameters<OAuth2Client["request"]>[0],
 ): Promise<{ data: T }> {
   return await client.request<T>(config);
 }

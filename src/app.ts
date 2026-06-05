@@ -24,6 +24,12 @@ export interface AppConfig {
   googleConnectors: "simulated" | "live";
   storageBackend: "memory" | "sheets";
   serviceAccountJson?: string;
+  // Optional OAuth user-delegation for the Docs/Drive connector (all three required to
+  // activate). Lets real Doc creation work on a personal Gmail account; absent ⇒ Docs uses
+  // the service account (Shared Drive path).
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  oauthRefreshToken?: string;
 }
 
 export interface App {
@@ -72,6 +78,9 @@ export function buildApp(config: AppConfig): App {
     serviceAccountJson: config.serviceAccountJson,
     docsTemplateId: firstCompanyResources?.googleDocs?.jobDescriptionTemplateId || undefined,
     docsFolderId: firstCompanyResources?.googleDrive?.hrKnowledgeFolderId || undefined,
+    oauthClientId: config.oauthClientId,
+    oauthClientSecret: config.oauthClientSecret,
+    oauthRefreshToken: config.oauthRefreshToken,
   });
   // Sheets storage reuses the first company's recruitment spreadsheet (its proc_state /
   // proc_audit tabs). Records carry companyId, so one sheet serves all companies (V1).
@@ -120,6 +129,9 @@ export function loadAppConfigFromEnv(): AppConfig {
     googleConnectors: process.env.GOOGLE_CONNECTORS === "live" ? "live" : "simulated",
     storageBackend: process.env.STORAGE_BACKEND === "sheets" ? "sheets" : "memory",
     serviceAccountJson: resolveServiceAccountJson(),
+    oauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || undefined,
+    oauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() || undefined,
+    oauthRefreshToken: process.env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim() || undefined,
   };
 }
 

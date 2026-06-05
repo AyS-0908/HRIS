@@ -1,0 +1,18 @@
+# Fixture: no live Docs config (template + folder both empty). In live mode this keeps Docs
+# simulated (the opt-out path). Decoupled from config/company.example.yaml on purpose.
+company:
+  id: acme
+  name: Acme Corp
+  enabledModules:
+    - hr.recruitment
+  roles:
+    - hr_admin
+    - manager
+    - employee
+resources:
+  googleDrive:
+    hrKnowledgeFolderId: ""
+  googleSheets:
+    hrRecruitmentSheetId: "fixture-sheet"
+  googleDocs:
+    jobDescriptionTemplateId: ""
