@@ -57,7 +57,7 @@ const generateJobDescription: ToolDefinition = {
     processId: PROCESS_ID,
     allowedStatusesBefore: [STATUS.pendingValidation],
     statusAfterSuccess: STATUS.pendingValidation, // unchanged: AI does not transition
-    requiredRole: "", // manager or hr_admin (governed by permission scope)
+    // no requiredRole: manager or hr_admin, governed by permissionScope alone
     sideEffects: ["create_document"],
     auditLevel: "standard",
     idempotent: true,

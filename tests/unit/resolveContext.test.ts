@@ -15,7 +15,9 @@ function registry(): CompanyRegistry {
   return reg;
 }
 
-const base = { companyId: "acme", actorId: "marie@acme.test", actorRole: "manager" };
+// companyId is now the authenticated tenant (from the API key), passed as the first arg; the
+// headers carry only actorId/actorRole.
+const headers = { actorId: "marie@acme.test", actorRole: "manager" };
 
 function codeOf(fn: () => unknown): string {
   try {
@@ -28,22 +30,23 @@ function codeOf(fn: () => unknown): string {
 
 describe("resolveContext role override", () => {
   it("uses a valid Sheet role over the header role", () => {
-    const ctx = resolveContext(base, "key", registry(), "hr_admin");
+    const ctx = resolveContext("acme", headers, "key", registry(), "hr_admin");
     expect(ctx.actorRole).toBe("hr_admin");
+    expect(ctx.companyId).toBe("acme");
   });
 
   it("falls back to the valid header role when the Sheet role is an invalid token", () => {
     // RH typo in the Users tab: 'rh' is not a company role; the valid header must still pass.
-    const ctx = resolveContext(base, "key", registry(), "rh");
+    const ctx = resolveContext("acme", headers, "key", registry(), "rh");
     expect(ctx.actorRole).toBe("manager");
   });
 
   it("uses the header role when no Sheet override is present (null)", () => {
-    const ctx = resolveContext(base, "key", registry(), null);
+    const ctx = resolveContext("acme", headers, "key", registry(), null);
     expect(ctx.actorRole).toBe("manager");
   });
 
   it("rejects only when neither the Sheet nor the header yields a valid role", () => {
-    expect(codeOf(() => resolveContext({ ...base, actorRole: "bogus" }, "key", registry(), "rh"))).toBe("FORBIDDEN");
+    expect(codeOf(() => resolveContext("acme", { ...headers, actorRole: "bogus" }, "key", registry(), "rh"))).toBe("FORBIDDEN");
   });
 });

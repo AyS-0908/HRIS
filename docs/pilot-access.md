@@ -1,7 +1,14 @@
-# Pilot access — connecting a DRH (HTTPS + Claude Desktop)
+# Pilot access — connecting a DRH (Claude Desktop AND claude.ai web)
 
-This is the V1 connection path: **Claude Desktop + `mcp-remote`**, sending the identity
-headers per person. A native `claude.ai` custom connector (OAuth/bearer) is Phase 3.
+Two connection paths, both over HTTPS, both per-company authenticated:
+
+| Path | Who/where | Identity model |
+| --- | --- | --- |
+| **Claude Desktop + `mcp-remote`** (§3) | a workstation with the desktop app | the **company key** (`x-api-key`/bearer) + per-person `x-actor-*` **headers** |
+| **claude.ai web custom connector** (§5) | any browser, no install | a **per-actor token** (bearer) that *binds the person* — claude.ai web can't send custom headers, so the token carries the identity |
+
+Both resolve identity server-side at `core/auth` (never inferred in a handler). Pick either or
+both per person.
 
 ## 1. HTTPS on the server (prerequisite)
 
@@ -21,10 +28,14 @@ inferred downstream):
 
 | Header | Meaning |
 | --- | --- |
-| `x-api-key` | the API key (authentication). **V1: a single shared server key** — not yet per-company; the tenant comes from `x-company-id`. Per-company keys are planned. |
-| `x-company-id` | the `companyId` from the company config |
+| `x-api-key` | the company's API key — **authenticates AND selects the tenant**. Each company has its own key (`auth.apiKeyHash` in its config); a key can act **only** as its own company. |
+| `x-company-id` | optional, advisory. If sent it must **match** the key's company, else `FORBIDDEN` (anti-spoof). The tenant is always derived from the key, never from this header. |
 | `x-actor-id` | this person's stable id (their email — the `Users` tab key) |
 | `x-actor-role` | this person's role — **advisory** (fallback only; see below) |
+
+> **Per-company keys (resolved).** The old single shared `API_KEY` is gone. A stolen/guessed
+> header can no longer impersonate another tenant: without that company's key, no request
+> authenticates, and a mismatched `x-company-id` is rejected.
 
 **Identity from the Sheet (D2):** the effective role is resolved server-side from the
 RH-editable `Users` tab (`email | role`) of the company sheet, keyed by `x-actor-id`. RH can
@@ -71,3 +82,72 @@ recruter…"* and the [hr-recruitment Skill](../skills/hr-recruitment/SKILL.md) 
   Drive folder. At approve, HR is **notified by email** (D1) — recipients are the `Users` rows
   with role `hr_admin` (fallback: Config key `hrNotifyEmail`). Publishing/diffusion is a
   separate future module.
+
+## 5. claude.ai web custom connector (no install)
+
+claude.ai web ("Settings → Connectors → Add custom connector") connects to a remote MCP server
+by **URL** and authenticates with a **bearer token** — it does **not** let you set arbitrary
+per-person headers the way Claude Desktop does. So the token itself must carry the person's
+identity. That is exactly what a **per-actor key** does: it resolves to `{ companyId, actorId,
+role }` at `core/auth`, so no `x-actor-*` header is needed.
+
+### 5.1 Mint a per-actor token (operator, once per person)
+
+```bash
+npm run add-actor-key -- --company config/company.acme.yaml \
+  --actor marie.dupont@acme.com --role manager
+# prints the token ONCE; only its sha256 hash is stored in the config (auth.actorKeys).
+```
+
+`--role` is optional — omit it to let the role come from the `Users` tab (D2). Re-running for the
+same `--actor` **re-issues** (replaces) that person's token. Restart the server to load it.
+
+### 5.2 Add the connector (the DRH, in the browser)
+
+1. claude.ai → **Settings → Connectors → Add custom connector**.
+2. **URL:** `https://hris-mcp.<domain>/mcp`
+3. **Authentication:** bearer token → paste the token from 5.1.
+4. Save. The HRIS tools appear; the DRH runs the same flow as Desktop, with no headers to set.
+
+> **Why this stays within the architecture:** the token is checked by
+> `resolveApiKeyIdentity` (core/auth) which returns the bound `actorId`/`role`; the server then
+> builds the same `RequestContext` it would from headers. Identity is never bolted onto a
+> handler — a per-actor key and a header-carried identity converge at the same `core/auth` point.
+
+### 5.3 HTTPS / TLS prerequisite (current blocker)
+
+claude.ai web **requires HTTPS**. Today `http://hris-mcp.sourcinno.com` serves plain HTTP (no
+TLS certificate), so the native web connector **cannot be live-verified yet**. Enable TLS on
+Coolify first:
+
+1. Coolify → the **HRIS** app → **Domains**: set `https://hris-mcp.sourcinno.com` (note the
+   `https://`).
+2. Ensure the DNS A record for `hris-mcp.sourcinno.com` points at the Coolify host, and ports
+   **80 + 443** are open (Let's Encrypt needs 80 for the ACME challenge; 443 serves TLS).
+3. Coolify auto-provisions a Let's Encrypt certificate. Redeploy if needed.
+4. Verify: `https://hris-mcp.sourcinno.com/healthz` → `{ "ok": true }` over TLS.
+
+### 5.4 Verification checklist
+
+The auth model itself is **already verified locally** (curl, both paths):
+
+```bash
+# company-wide key + actor headers (Desktop path)
+curl -s -X POST http://localhost:3000/mcp \
+  -H "Authorization: Bearer <company-key>" \
+  -H "x-actor-id: drh@acme.com" -H "x-actor-role: hr_admin" \
+  -H "Accept: application/json, text/event-stream" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_available_business_tools","arguments":{}}}'
+
+# per-actor token, NO headers (claude.ai web path) — identity comes from the token
+curl -s -X POST http://localhost:3000/mcp \
+  -H "Authorization: Bearer <per-actor-token>" \
+  -H "Accept: application/json, text/event-stream" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"submit_job_request","arguments":{"title":"QA","justification":"growth","plannedHire":true}}}'
+
+# anti-spoof: wrong x-company-id → FORBIDDEN ; wrong key → UNAUTHENTICATED
+```
+
+**Blocked until TLS (5.3):** adding the connector in claude.ai web and running the flow from a
+browser. Once `https://…/healthz` is green, complete 5.2 and confirm the tools list + a
+`submit → generate → approve`.

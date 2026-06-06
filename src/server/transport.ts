@@ -10,8 +10,12 @@ function headersFrom(req: Request) {
     const v = req.headers[name];
     return Array.isArray(v) ? v[0] : v;
   };
+  // The API key arrives as `x-api-key` (Claude Desktop + mcp-remote) OR as
+  // `Authorization: Bearer <key>` (the claude.ai web / standard bearer form). Both map to the
+  // same per-company key resolved at core/auth.
+  const bearer = (h("authorization") ?? "").replace(/^Bearer\s+/i, "").trim() || undefined;
   return {
-    apiKey: h("x-api-key"),
+    apiKey: h("x-api-key") ?? bearer,
     companyId: h("x-company-id"),
     actorId: h("x-actor-id"),
     actorRole: h("x-actor-role"),

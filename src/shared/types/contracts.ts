@@ -3,10 +3,10 @@ import type { ZodSchema } from "zod";
 
 // ── Identity (SPEC §2) ──────────────────────────────────────────────────────
 export interface RequestContext {
-  companyId: string; // from header `x-company-id`, validated against loaded companies
-  actorId: string; // from header `x-actor-id`
-  actorRole: string; // from header `x-actor-role`, validated against company roles
-  apiKeyId: string; // resolved from API_KEY
+  companyId: string; // resolved from the authenticated API key
+  actorId: string; // from per-actor key, or header `x-actor-id`
+  actorRole: string; // resolved from Users tab, per-actor key, or advisory header fallback
+  apiKeyId: string; // stable non-secret id derived from the API key hash
 }
 
 // ── Error model (SPEC §10) ──────────────────────────────────────────────────
@@ -208,7 +208,8 @@ export interface ToolProcessBinding {
   processId: string;
   allowedStatusesBefore: string[]; // gate
   statusAfterSuccess: string;
-  requiredRole: string;
+  requiredRole?: string; // omit when the tool is governed by permissionScope alone
+
   sideEffects: SideEffect[];
   auditLevel: AuditLevel;
   idempotent: boolean; // true ⇒ handler must dedup via idempotencyKey

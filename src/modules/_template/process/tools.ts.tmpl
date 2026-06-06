@@ -1,6 +1,6 @@
 // Coarse business actions only — no technical step names at the MCP surface (SPEC §11).
 import type { ToolDefinition } from "../../../shared/types/contracts.js";
-import { submitRequestInput } from "./schemas.js";
+import { submitRequestInput, type SubmitRequestInput } from "./schemas.js";
 import { describeRequest } from "./service.js";
 
 export const PROCESS_ID = "__MODULE_NAME__";
@@ -22,7 +22,8 @@ const submit: ToolDefinition = {
     idempotent: false,
   },
   async handler(_ctx, input, deps) {
-    const i = submitRequestInput.parse(input);
+    // Runtime (§5 step 3) already validated against inputZod; trust the typed input.
+    const i = input as SubmitRequestInput;
     const { title } = await describeRequest(deps, i);
     return { status: "success", data: { title }, traceIds: [] };
   },

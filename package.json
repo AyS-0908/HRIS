@@ -16,6 +16,7 @@
     "test:contract": "vitest run tests/contract",
     "create-module": "tsx scripts/create-module.ts",
     "create-company": "tsx scripts/create-company.ts",
+    "add-actor-key": "tsx scripts/add-actor-key.ts",
     "setup-company-sheet": "tsx scripts/setup-company-sheet.ts",
     "oauth-token": "node --env-file=.env scripts/get-oauth-token.mjs",
     "check-standard": "tsx scripts/check-standard.ts",

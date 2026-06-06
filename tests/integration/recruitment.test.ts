@@ -35,7 +35,6 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
 let app: App;
 beforeEach(() => {
   app = buildApp({
-    apiKey: "test",
     companyConfigPath: "config/company.example.yaml",
     logLevel: "error",
     googleConnectors: "simulated",

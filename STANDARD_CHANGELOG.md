@@ -4,6 +4,39 @@ Core and modules are versioned independently (SPEC §13). Breaking core changes 
 
 ## [Unreleased]
 
+### Project memory cleanup
+- Removed the obsolete repo-local memory files (`memory/implementation-notes.md`,
+  `memory/lessons.md`) in favor of the project rule that current memory lives in `Progress.md`
+  and historical decisions live in this changelog. Preserved the still-useful facts here:
+  creator tools are identified by `allowedStatusesBefore: []`; non-creator tools require
+  `processInstanceId`; idempotent tools require `idempotencyKey`; process external ids flow
+  through `ServiceDeps.resources` / `externalReferences`; stateless streamable HTTP uses a fresh
+  server+transport per `POST /mcp`; idempotent short-circuits emit no new audit event; build uses
+  `tsconfig.build.json` while root `tsconfig.json` typechecks `src` + `scripts` + `tests`; module
+  templates keep `.tmpl` extensions so TypeScript ignores them; service-account JSON should be
+  supplied through `GOOGLE_SERVICE_ACCOUNT_JSON_FILE` because multi-line private keys do not work
+  reliably with `node --env-file`; public app/storage types should stay on `StorageAdapter` rather
+  than concrete implementations so the compiler catches hidden coupling.
+
+### Core 0.2.0 — per-company authentication (BREAKING)
+- **Per-company API keys replace the single shared `API_KEY`.** Each company config carries
+  `auth.apiKeyHash` (sha256 of its key). A key now **authenticates AND selects the tenant**:
+  `resolveApiKeyIdentity` (renamed from `resolveApiKeyId`) maps key→`{companyId, apiKeyId}`, so a
+  key can act only as its own company. The spoofable `x-company-id` header no longer chooses the
+  tenant — if present it must match the key's company, else `FORBIDDEN`. `resolveContext` now takes
+  the authenticated `companyId` as an explicit argument (no longer read from a header).
+  **Migration:** remove `API_KEY` from env; run `npm run create-company` (mints + prints a key,
+  stores only its hash) or add `auth.apiKeyHash` to each `company.<id>.yaml`. `AppConfig.apiKey`
+  removed.
+- **claude.ai web connector path (minimal bearer).** The transport accepts the key via
+  `Authorization: Bearer <key>` in addition to `x-api-key`. New **per-actor keys**
+  (`auth.actorKeys[]`: `keyHash → {actorId, role}`) let a token carry the identity for claude.ai
+  web, which can't send custom `x-actor-*` headers — resolved entirely at `core/auth`, never on a
+  handler. New `npm run add-actor-key` mints a per-actor token. Verified locally over both paths
+  (curl); live web verification is blocked until TLS is enabled on the Coolify domain.
+- **Docs consolidated:** new `docs/developer-guide.md` (AI-coder/developer) and
+  `docs/end-user-guide.md` (DRH), incl. the Google-Sheet may/must-not contract.
+
 ### Core 0.1.0
 - Initial V1 scaffold: streamable HTTP MCP server, core tools, identity/auth, process runtime, InMemory storage adapter, module/tool/process registries.
 - Live Google Sheets connector (service-account auth), selectable via `GOOGLE_CONNECTORS=live`; simulated remains the default. Connector failures surface as `CONNECTOR_ERROR`. Credentials load from `GOOGLE_SERVICE_ACCOUNT_JSON_FILE` (preferred) or inline `GOOGLE_SERVICE_ACCOUNT_JSON`. Verified end-to-end against a real sheet (`npm run smoke:live`).

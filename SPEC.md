@@ -35,23 +35,25 @@ Tool `input_schema` exposed over MCP = JSON Schema generated from the zod schema
 
 ## 2. IDENTITY & TENANCY (resolve before anything else)
 
-Every request carries: an API key (authenticates the calling client) and a tenant/actor context.
+Every request carries an API key. The API key authenticates the caller and selects the tenant.
+Actor identity is then resolved once in `core/auth`.
 
 ```ts
 interface RequestContext {
-  companyId: string;        // from header `x-company-id`, validated against loaded companies
-  actorId: string;          // from header `x-actor-id`
-  actorRole: string;        // from header `x-actor-role`, validated against company roles
-  apiKeyId: string;         // resolved from API_KEY
+  companyId: string;        // resolved from the authenticated API key
+  actorId: string;          // from per-actor key, or header `x-actor-id`
+  actorRole: string;        // resolved from Users tab, per-actor key, or advisory header fallback
+  apiKeyId: string;         // stable non-secret id derived from the API key hash
 }
 ```
 
 Rules:
 - Reject if API key invalid → `UNAUTHENTICATED`.
-- Reject if `companyId` unknown or the effective `actorRole` not in that company's roles → `FORBIDDEN`.
-- `RequestContext` is threaded into every tool handler, service, and audit event. It is the only source of `actorId`/`companyId`; never infer them elsewhere.
+- The API key is bound to exactly one company. If `x-company-id` is present, it must match the key's company, else `FORBIDDEN`.
+- Reject if the effective `actorRole` is not in that company's configured roles → `FORBIDDEN`.
+- `RequestContext` is threaded into every tool handler, service, and audit event. It is the only source of `actorId/companyId`; never infer them elsewhere.
 
-> [Resolved 2026-06-05 — D2] Identity from the Sheet. The effective `actorRole` is resolved server-side from the company's RH-editable `Users` tab (`email | role`), keyed by `x-actor-id` (`core/auth/resolveActorRole.ts`). The `x-actor-role` header is **advisory** — used only as a fallback when the `Users` tab is absent/empty or the actor is unlisted (anti-regression). The company YAML remains the closed set of **valid** roles; the Sheet only maps a known person to one of them. `x-actor-id`/`x-company-id` extraction is unchanged.
+[Resolved 2026-06-05 — D2] Identity from the Sheet. The effective `actorRole` is resolved server-side from the company's RH-editable `Users` tab (`email | role`), keyed by `actorId` (`core/auth/resolveActorRole.ts`). The `x-actor-role` header is advisory and used only as a fallback when the Users tab is absent/empty, the actor is unlisted, or a per-actor key does not bind a role. The company YAML remains the closed set of valid roles.
 
 ---
 
@@ -150,7 +152,7 @@ interface ToolDefinition<I = unknown> {
     processId: string;
     allowedStatusesBefore: string[];  // gate
     statusAfterSuccess: string;
-    requiredRole: string;
+    requiredRole?: string;            // omit when governed by permissionScope alone
     sideEffects: SideEffect[];
     auditLevel: 'none' | 'standard' | 'strict';
     idempotent: boolean;              // true ⇒ handler must dedup via idempotencyKey
@@ -315,7 +317,8 @@ Core and modules versioned independently (semver). Breaking core change requires
 ## 14. DEPLOYMENT
 
 ```env
-NODE_ENV= PORT= MCP_SERVER_PUBLIC_URL= API_KEY= COMPANY_CONFIG_PATH= LOG_LEVEL=
+NODE_ENV= PORT= MCP_SERVER_PUBLIC_URL= COMPANY_CONFIG_PATH= LOG_LEVEL=
+# API keys are per-company: config/company.<id>.yaml stores auth.apiKeyHash / auth.actorKeys[].keyHash.
 # connector / storage mode
 GOOGLE_CONNECTORS=simulated|live   STORAGE_BACKEND=memory|sheets
 # live Google (service account — Sheets always, Docs via Shared Drive). Prefer the *_FILE path:

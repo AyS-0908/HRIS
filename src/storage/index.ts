@@ -15,7 +15,7 @@ export interface StorageOptions {
   serviceAccountJson?: string;
   // Per-company recruitment spreadsheets (sheets backend). Each tenant's process state +
   // audit persist to ITS OWN sheet (true multi-tenant — P2.3). A company without a sheet id
-  // is rejected at use time with a clear error.
+  // is rejected fail-fast at startup with a clear error.
   companies?: { companyId: string; sheetId?: string }[];
 }
 
@@ -26,13 +26,21 @@ export function buildStorage(logger: Logger, options: StorageOptions): StorageAd
         "STORAGE_BACKEND=sheets requires a service account (set GOOGLE_SERVICE_ACCOUNT_JSON_FILE or GOOGLE_SERVICE_ACCOUNT_JSON)",
       );
     }
-    const withSheet = (options.companies ?? []).filter((c) => c.sheetId);
-    if (withSheet.length === 0) {
+    // Fail-fast at startup: under the sheets backend EVERY loaded company must declare its own
+    // recruitment spreadsheet, otherwise that tenant would only fail on its first request.
+    const companies = options.companies ?? [];
+    if (companies.length === 0) {
       throw new Error(
         "STORAGE_BACKEND=sheets requires a spreadsheet id (set resources.googleSheets.hrRecruitmentSheetId in the company config)",
       );
     }
-    return new SheetsStorageRouter(logger, options.serviceAccountJson, withSheet);
+    const missing = companies.filter((c) => !c.sheetId).map((c) => c.companyId);
+    if (missing.length > 0) {
+      throw new Error(
+        `STORAGE_BACKEND=sheets requires resources.googleSheets.hrRecruitmentSheetId for every loaded company; missing for: ${missing.join(", ")}`,
+      );
+    }
+    return new SheetsStorageRouter(logger, options.serviceAccountJson, companies);
   }
   // In-memory backend: a single companyId-keyed store serves every tenant.
   return new InMemoryStorageAdapter();

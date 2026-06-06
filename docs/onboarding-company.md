@@ -37,13 +37,15 @@ The company then provides:
 | Sheet id | `resources.googleSheets.hrRecruitmentSheetId` |
 | user list (`email` + role per person) | entered in the **`Users` tab** of the Sheet (RH-editable, D2) — see [pilot-access.md](pilot-access.md). At least one `hr_admin` row doubles as the email recipient for the approve notification (D1). |
 
-The operator issues an **API key** for the company.
+The operator issues a **per-company API key** (see step 2 — `create-company` mints it).
 
-> **V1 reality (do not over-promise):** the server today authenticates against a **single
-> shared `API_KEY`** ([src/core/auth/apiKey.ts](../src/core/auth/apiKey.ts)) — it is **not yet
-> bound per company**. The tenant is selected by the separate `x-company-id` header. Per-company
-> keys (a key→companyId map so a key can only act as its own tenant) are a planned change; until
-> then every company uses the same operator key + its own `x-company-id`.
+> **Per-company key (how tenancy is enforced):** each company config carries
+> `auth.apiKeyHash` — the sha256 of that company's key
+> ([src/core/auth/apiKey.ts](../src/core/auth/apiKey.ts)). The key **both authenticates the
+> caller and selects the tenant**: a key can act *only* as its own company, so the
+> `x-company-id` header can no longer choose (or spoof) the tenant — if present it must match,
+> else the request is rejected (`FORBIDDEN`). The raw key is shown **once** at creation and only
+> its hash is stored; it cannot be recovered.
 
 > A Drive/Doc/Sheet id is the long token in its URL, e.g.
 > `https://drive.google.com/drive/folders/<FOLDER_ID>` ,
@@ -60,7 +62,9 @@ npm run create-company -- \
 ```
 
 This writes `config/company.acme.yaml`, validated against `companyConfigSchema` (zod). A bad
-input fails here, not at server boot.
+input fails here, not at server boot. It also **mints the company's API key and prints it once**
+(only the sha256 hash is stored in the config) — copy that key and hand it to the company; it
+cannot be recovered later. To use a pre-agreed key instead, pass `--key <raw>`.
 
 ## 3. Create / validate the Sheet tabs
 

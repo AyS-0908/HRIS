@@ -53,7 +53,6 @@ if (!resolvedServiceAccountJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON or
 
 const serviceAccount = JSON.parse(resolvedServiceAccountJson);
 const app = buildApp({
-  apiKey: env.API_KEY ?? "dev-local-key",
   companyConfigPath: env.COMPANY_CONFIG_PATH ?? "config/company.example.yaml",
   logLevel: "error",
   googleConnectors: "live",

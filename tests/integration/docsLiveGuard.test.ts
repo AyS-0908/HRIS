@@ -28,7 +28,6 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
 
 function liveApp(companyConfigPath: string): App {
   return buildApp({
-    apiKey: "test",
     companyConfigPath,
     logLevel: "error",
     googleConnectors: "live",

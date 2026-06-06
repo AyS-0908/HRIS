@@ -12,8 +12,10 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { writeFileSync, existsSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { stringify as toYaml } from "yaml";
 import { companyConfigSchema } from "../src/core/config/schema.js";
+import { hashApiKey } from "../src/core/auth/apiKey.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +36,10 @@ if (!id || !name) {
 
 const roles = list(arg("roles"));
 const enabledModules = list(arg("modules"));
+
+// Mint this company's API key: a random secret shown ONCE, of which only the sha256 hash is
+// stored in the config. `--key <raw>` lets the operator supply a pre-agreed key instead.
+const rawKey = arg("key") ?? `hris_${id}_${randomBytes(24).toString("base64url")}`;
 const config = {
   company: {
     id,
@@ -41,6 +47,7 @@ const config = {
     enabledModules: enabledModules.length ? enabledModules : ["hr.recruitment"],
     roles: roles.length ? roles : ["hr_admin", "manager", "employee"],
   },
+  auth: { apiKeyHash: hashApiKey(rawKey) },
   resources: {
     googleDrive: { hrKnowledgeFolderId: arg("folder") ?? "" },
     googleSheets: { hrRecruitmentSheetId: arg("sheet") ?? "" },
@@ -65,4 +72,9 @@ const header =
   "# Share the Sheet, Drive folder and Doc template with the service-account email (edit access).\n";
 writeFileSync(outPath, header + toYaml(config));
 console.log(`wrote ${outPath}`);
+if (!arg("key")) {
+  console.log("\n=== API KEY (shown once — store it securely, give it to this company) ===");
+  console.log(`  x-api-key: ${rawKey}`);
+  console.log("Only its sha256 hash is saved in the config; the raw key cannot be recovered.\n");
+}
 console.log("next: run setup-company-sheet to create the rec_jobDesc/Config tabs, then add the path to COMPANY_CONFIG_PATH.");

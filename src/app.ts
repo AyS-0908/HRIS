@@ -18,7 +18,8 @@ import { ALL_MODULES } from "./modules/index.js";
 import { resolveServiceAccountJsonFromEnv } from "./connectors/google/auth.js";
 
 export interface AppConfig {
-  apiKey: string;
+  // No server-wide API key: authentication is per-company (auth.apiKeyHash in each company
+  // config). A key both authenticates and binds the tenant (SPEC §2) — see core/auth/apiKey.ts.
   companyConfigPath: string;
   logLevel: "debug" | "info" | "warn" | "error";
   googleConnectors: "simulated" | "live";
@@ -125,7 +126,6 @@ export function buildApp(config: AppConfig): App {
 
 export function loadAppConfigFromEnv(): AppConfig {
   return {
-    apiKey: process.env.API_KEY ?? "",
     companyConfigPath: process.env.COMPANY_CONFIG_PATH ?? "config/company.example.yaml",
     logLevel: (process.env.LOG_LEVEL as AppConfig["logLevel"]) ?? "info",
     googleConnectors: process.env.GOOGLE_CONNECTORS === "live" ? "live" : "simulated",

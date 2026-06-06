@@ -30,7 +30,7 @@ Couvre l'intégralité des règles du standard sans aucune configuration.
 npm test
 ```
 
-**Résultat attendu : 45 tests verts, 0 erreur.**
+**Résultat attendu : 100% des tests verts, 0 erreur.**
 
 Ce que les tests vérifient en termes métier :
 
@@ -59,9 +59,11 @@ Ce test démarre le vrai serveur HTTP et envoie de vraies requêtes, comme le fe
 Copier `.env.example` → `.env` (dans le même dossier). Vérifier que le fichier `.env` contient :
 
 ```
-API_KEY=dev-local-key
 COMPANY_CONFIG_PATH=config/company.example.yaml
 ```
+
+Avec la configuration exemple, la clé de test est `dev-acme-key`. 
+Il n'y a plus de variable `API_KEY` globale.
 
 ### Étape B — Démarrer le serveur
 
@@ -104,7 +106,7 @@ Copier-coller les blocs dans l'ordre dans le **deuxième terminal**.
 $h = @{
     "Content-Type" = "application/json"
     "Accept"       = "application/json"
-    "x-api-key"    = "dev-local-key"
+    "x-api-key"    = "dev-acme-key"
     "x-company-id" = "acme"
     "x-actor-id"   = "marie"
     "x-actor-role" = "manager"
@@ -257,7 +259,7 @@ Write-Host "==> Code erreur : $(($rForbidden.result.content[0].text | ConvertFro
 # Ouvrir un nouveau dossier
 $rD    = Invoke-RestMethod http://localhost:3000/mcp -Method POST -Headers $h -Body (
     ConvertTo-Json -Depth 5 @{
-        jsonrpc = "2.0"; id = 45; method = "tools/call"
+        jsonrpc = "2.0"; id = 52; method = "tools/call"
         params  = @{ name = "submit_job_request"; arguments = @{ title = "Test doublon"; justification = "test"; plannedHire = $false } }
     }
 )
@@ -317,7 +319,7 @@ Relancer le serveur (`npm run build && npm start`) et rejouer le scénario du Te
 
 | Ce qu'on teste | Comment | Signe de succès |
 |---|---|---|
-| Tout le cœur (recommandé) | `npm test` | 45 verts, 0 erreur |
+| Tout le cœur (recommandé) | `npm test` | 100% tests verts |
 | Serveur vivant | GET `/healthz` | `ok : True` |
 | Workflow complet (3 étapes) | Test 2 commandes 1–3 | statut passe à `approved` |
 | Validation des entrées | Test 2 étape E — VALIDATION_ERROR | `Code erreur : VALIDATION_ERROR` |

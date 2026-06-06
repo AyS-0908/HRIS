@@ -6,8 +6,9 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { App } from "../app.js";
-import { resolveApiKeyId } from "../core/auth/apiKey.js";
+import { resolveApiKeyIdentity } from "../core/auth/apiKey.js";
 import { resolveContext, type IdentityHeaders } from "../core/auth/context.js";
+import { forbidden } from "../core/errors/appError.js";
 import { resolveActorRole } from "../core/auth/resolveActorRole.js";
 import { toInputSchema } from "../core/validation/inputSchema.js";
 import { AppError, toClientError } from "../core/errors/appError.js";
@@ -44,33 +45,41 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
   // Resolves the actor's role from the company `Users` tab (D2). Authoritative when present;
   // null ⇒ resolveContext falls back to the advisory header role. Generic + best-effort: a
   // missing tab/sheet or a read failure returns null (never throws). Reads ITS OWN tracking
-  // sheet, scoped by the validated companyId.
-  const resolveRoleFromSheet = async (): Promise<string | null> => {
-    const companyId = headers.companyId?.trim();
-    const actorId = headers.actorId?.trim();
-    if (!companyId || !actorId || !app.companies.has(companyId)) return null;
+  // sheet, scoped by the authenticated companyId.
+  const resolveRoleFromSheet = async (companyId: string, actorIdRaw: string | undefined): Promise<string | null> => {
+    const actorId = actorIdRaw?.trim();
+    if (!actorId || !app.companies.has(companyId)) return null;
     const sheetId = app.companies.get(companyId)!.resources.googleSheets?.hrRecruitmentSheetId;
     if (!sheetId) return null;
     return resolveActorRole(companyId, actorId, sheetId, app.connectors.sheets, app.logger);
   };
 
+  // Anti-spoof: the tenant is the company the API key is bound to. If the caller also sends an
+  // x-company-id, it must match — a mismatch is an attempt to act as another tenant (FORBIDDEN).
+  const assertCompanyHeaderMatches = (companyId: string): void => {
+    const claimed = headers.companyId?.trim();
+    if (claimed && claimed !== companyId) {
+      throw forbidden("x-company-id does not match the API key's company");
+    }
+  };
+
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    // API key is always required; company identity only to list business tools.
-    resolveApiKeyId(headers.apiKey, app.config.apiKey);
+    // API key both authenticates and selects the tenant; listing reflects that company's modules.
+    const { companyId } = resolveApiKeyIdentity(headers.apiKey, app.companies);
     const core = CORE_TOOLS.map((t) => ({ ...t, inputSchema: EMPTY_INPUT }));
     let business: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [];
     try {
+      assertCompanyHeaderMatches(companyId);
       // Tool visibility depends only on the company's enabled modules, NOT on the actor role,
       // so we skip the Users-tab read (resolveRoleFromSheet) here — it would add a Sheets
       // round-trip per handshake without changing the returned list.
-      const ctx = resolveContext(headers, "listing", app.companies);
-      business = app.enabledToolsFor(ctx.companyId).map((rt) => ({
+      business = app.enabledToolsFor(companyId).map((rt) => ({
         name: rt.tool.name,
         description: rt.tool.description,
         inputSchema: toInputSchema(rt.tool.inputZod),
       }));
     } catch {
-      // No/invalid company header → core tools only.
+      // Company mismatch / lookup issue → core tools only.
     }
     return { tools: [...core, ...business] };
   });
@@ -79,14 +88,22 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
     const name = request.params.name;
     const args = request.params.arguments ?? {};
     try {
-      // Authentication precedes everything (SPEC §5 step 1).
-      const apiKeyId = resolveApiKeyId(headers.apiKey, app.config.apiKey);
+      // Authentication precedes everything (SPEC §5 step 1). The key also binds the tenant
+      // (and, for a per-actor claude.ai-web key, the actor identity).
+      const { apiKeyId, companyId, actorId, actorRole } = resolveApiKeyIdentity(headers.apiKey, app.companies);
 
       if (name === "health_check") return ok(await healthCheck(app));
       if (name === "get_standard_version") return ok({ standardVersion: STANDARD_VERSION });
 
-      const roleOverride = await resolveRoleFromSheet();
-      const ctx = resolveContext(headers, apiKeyId, app.companies, roleOverride);
+      assertCompanyHeaderMatches(companyId);
+      // A per-actor key carries identity in the token (claude.ai web sends no x-actor-* headers);
+      // a company-wide key relies on the headers (Claude Desktop). Either way identity is
+      // resolved here at core/auth — never inferred in a handler.
+      const effHeaders: IdentityHeaders = actorId
+        ? { ...headers, actorId, actorRole: actorRole ?? headers.actorRole }
+        : headers;
+      const roleOverride = await resolveRoleFromSheet(companyId, effHeaders.actorId);
+      const ctx = resolveContext(companyId, effHeaders, apiKeyId, app.companies, roleOverride);
 
       if (name === "list_available_business_tools") {
         return ok({

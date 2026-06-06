@@ -14,24 +14,29 @@ edited to onboard a company or add a module.
 
 ```bash
 npm install
-cp .env.example .env        # set API_KEY, COMPANY_CONFIG_PATH
+cp .env.example .env        # set COMPANY_CONFIG_PATH (no server-wide API key any more)
 npm run build
 npm start                   # serves streamable HTTP on http://localhost:3000/mcp
 ```
 
-Health probe: `GET /healthz`. MCP endpoint: `POST /mcp`.
+Health probe: `GET /healthz`. MCP endpoint: `POST /mcp`. With the committed example config the
+dev API key is `dev-acme-key`.
 
 ### Identity headers (every request)
 
 | Header | Meaning |
 |---|---|
-| `x-api-key` | client API key (matches `API_KEY`) |
-| `x-company-id` | a company id loaded from config |
-| `x-actor-id` | acting user id |
-| `x-actor-role` | a role declared by that company |
+| `x-api-key` (or `Authorization: Bearer <key>`) | the **per-company** API key — authenticates AND selects the tenant (`auth.apiKeyHash` in the company config). A key acts only as its own company. |
+| `x-company-id` | optional/advisory: if present it must match the key's company, else `FORBIDDEN`. The tenant is always derived from the key. |
+| `x-actor-id` | acting user id (their email — the `Users` tab key) |
+| `x-actor-role` | a role declared by that company — advisory (Sheet `Users` tab is authoritative, D2) |
 
-Core tools (`health_check`, `get_standard_version`) need only the API key.
-Business tools and `list_available_business_tools` need the company headers.
+A **per-actor key** (for claude.ai web, which can't send custom headers) binds the actor into the
+token itself — see [docs/pilot-access.md](docs/pilot-access.md) §5. Core tools (`health_check`,
+`get_standard_version`) need only the key. Business tools resolve full identity at `core/auth`.
+
+> New here? Two consolidated guides: [docs/developer-guide.md](docs/developer-guide.md)
+> (AI-coder/developer) and [docs/end-user-guide.md](docs/end-user-guide.md) (non-technical DRH).
 
 ## Tests
 
@@ -111,10 +116,12 @@ and `externalOutputs` are stored as JSON in a single cell.
 ```bash
 docker build -t mcp-custom-standard .
 docker run -p 3000:3000 \
-  -e API_KEY=dev-local-key \
   -e COMPANY_CONFIG_PATH=config/company.example.yaml \
   mcp-custom-standard
 ```
+
+The API key is not an env var: it lives (hashed) in each company config. See
+[docs/developer-guide.md](docs/developer-guide.md) for the Coolify deployment.
 
 ## V1 scope notes
 
@@ -122,4 +129,3 @@ docker run -p 3000:3000 \
 - Identity: the actor role is resolved from the RH-editable `Users` tab (`email | role`) of the company sheet (D2); the `x-actor-role` header is advisory; the company YAML stays the set of valid roles.
 - Storage runs through a `StorageAdapter`: in-memory by default, or the Google Sheets reference impl via `STORAGE_BACKEND=sheets` (swappable without core edits).
 - Google connectors are simulated by default; **Sheets, Docs and Gmail** support live operation via `GOOGLE_CONNECTORS=live` (+ OAuth for Docs-on-personal-Gmail and for Gmail). Drive/Forms/Calendar/http/webhook stay simulated.
-- See [memory/implementation-notes.md](memory/implementation-notes.md) for spec deltas.

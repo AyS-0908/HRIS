@@ -9,6 +9,12 @@ company:
     - hr_admin
     - manager
     - employee
+# Per-company API key. This is the sha256 of the throwaway DEV key `dev-acme-key` — use it for
+# local runs only (x-api-key: dev-acme-key). A real company gets a random key from
+# `npm run create-company` (it prints the key once and stores only this hash). The raw key is
+# never committed; the hash cannot be reversed.
+auth:
+  apiKeyHash: "62c2fc277ab4261d4243be7b5cf49bdab2c39fed01ae2d4ce1cf9a38ec4e793c"
 resources:
   # Share all three (folder, template Doc, Sheet) with the service-account email (edit).
   googleDrive:
@@ -18,7 +24,11 @@ resources:
   googleSheets:
     # Recruitment tracking sheet. Needs a "rec_jobDesc" tab (id | titre | mgr | url | status)
     # and a "Config" tab (key | value). Both are created by: npm run setup-company-sheet.
-    hrRecruitmentSheetId: "1VhEeiLsix8Dk8Jwo1Hvh2zHcWbf3PBTfJPJWmK8DL-M"
+    # This is a PLACEHOLDER id (not a real sheet) — it keeps the Users/Config read path wired
+    # in simulated mode without leaking a real id. Set "" to skip the Sheet entirely. A real
+    # company gets its own id from npm run create-company; real ids live only in the gitignored
+    # config/company.<id>.yaml.
+    hrRecruitmentSheetId: "example-recruitment-sheet-id"
   googleDocs:
     # Template Doc copied per fiche; supports {{TITLE}} / {{SUMMARY}} / {{BODY}} placeholders.
     # Required for live Docs (GOOGLE_CONNECTORS=live); leave "" to keep Docs simulated.
