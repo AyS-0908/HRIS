@@ -52,7 +52,11 @@ export class InMemoryStorageAdapter implements StorageAdapter {
   async updateStatus(
     companyId: string,
     processInstanceId: string,
-    patch: Pick<ProcessState, "currentStatus" | "currentStep" | "lastToolCalled">,
+    patch: Pick<ProcessState, "currentStatus" | "currentStep" | "lastToolCalled"> & {
+      // Mirror the StorageAdapter contract: optional merged external ids (e.g. docUrl) to
+      // persist. Without this the spread below silently relies on an untyped excess property.
+      externalReferences?: ProcessState["externalReferences"];
+    },
   ): Promise<ProcessState> {
     const k = key(companyId, processInstanceId);
     const prev = this.instances.get(k);

@@ -39,8 +39,20 @@ export interface Connector {
 
 export interface DocsConnector extends Connector {
   // Creates a document (optionally from a template). Returns a traceable id.
+  //  - `title`   → {{TITLE}}
+  //  - `summary` → {{SUMMARY}} (falls back to title when absent)
+  //  - `content` → {{BODY}} (legacy free-form body)
+  //  - `sections`→ named structured placeholders, e.g. { MISSION, RESPONSIBILITIES, ... }
+  //  - `folderId`→ per-call target Drive folder (per-company; overrides the connector default)
   createDocument(
-    input: { templateId?: string; title: string; content: string },
+    input: {
+      templateId?: string;
+      folderId?: string;
+      title: string;
+      summary?: string;
+      content: string;
+      sections?: Record<string, string>;
+    },
     idempotencyKey: string,
   ): Promise<{ docId: string; url: string }>;
 }

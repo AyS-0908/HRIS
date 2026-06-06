@@ -20,6 +20,11 @@ secrets.json
 service-account.json
 service-account*.json
 
+# Real per-company configs hold live resource ids — keep them out of git.
+# Only the empty example template is tracked.
+config/company.*.yaml
+!config/company.example.yaml
+
 # Build / OS
 dist/
 build/

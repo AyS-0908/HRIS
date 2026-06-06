@@ -13,8 +13,12 @@ const processDefinition: ProcessDefinition = {
   processId: PROCESS_ID,
   domain: "hr",
   name: "Recruitment — Job description (Fiche poste)",
-  version: "0.1.0",
-  steps: ["submit_job_request", "generate_job_description", "approve_job_description"],
+  version: "0.3.0",
+  steps: [
+    "submit_job_request",
+    "generate_job_description",
+    "approve_job_description",
+  ],
   statuses: [STATUS.pendingValidation, STATUS.approved],
   roles: ["manager", "hr_admin"],
   auditRequired: true,
@@ -27,7 +31,7 @@ const statusModel: StatusModel = {
 
 export const recruitmentModule: ModuleContract = {
   moduleName: "hr.recruitment",
-  moduleVersion: "0.1.0",
+  moduleVersion: "0.3.0",
   tools: recruitmentTools,
   permissionRules: recruitmentPermissions,
   serviceBindings: {},

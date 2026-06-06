@@ -43,15 +43,27 @@ function loadEnv(path) {
 
 const env = loadEnv(".env");
 if (env.GOOGLE_CONNECTORS !== "live") throw new Error("GOOGLE_CONNECTORS is not live");
-if (!env.GOOGLE_SERVICE_ACCOUNT_JSON) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is empty");
+// Accept either inline JSON or a file path (mirrors resolveServiceAccountJson in app.ts).
+let resolvedServiceAccountJson = env.GOOGLE_SERVICE_ACCOUNT_JSON;
+if (!resolvedServiceAccountJson && env.GOOGLE_SERVICE_ACCOUNT_JSON_FILE) {
+  resolvedServiceAccountJson = fs.readFileSync(env.GOOGLE_SERVICE_ACCOUNT_JSON_FILE.trim(), "utf8");
+  process.env.GOOGLE_SERVICE_ACCOUNT_JSON = resolvedServiceAccountJson;
+}
+if (!resolvedServiceAccountJson) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_JSON_FILE is empty");
 
-const serviceAccount = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON);
+const serviceAccount = JSON.parse(resolvedServiceAccountJson);
 const app = buildApp({
   apiKey: env.API_KEY ?? "dev-local-key",
   companyConfigPath: env.COMPANY_CONFIG_PATH ?? "config/company.example.yaml",
   logLevel: "error",
   googleConnectors: "live",
-  serviceAccountJson: env.GOOGLE_SERVICE_ACCOUNT_JSON,
+  storageBackend: env.STORAGE_BACKEND === "sheets" ? "sheets" : "memory",
+  serviceAccountJson: resolvedServiceAccountJson,
+  // OAuth user-delegation for Docs/Drive (personal Gmail: the Doc is owned by the user).
+  // Without these the Docs connector falls back to the service account and fails on quota.
+  oauthClientId: env.GOOGLE_OAUTH_CLIENT_ID || undefined,
+  oauthClientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET || undefined,
+  oauthRefreshToken: env.GOOGLE_OAUTH_REFRESH_TOKEN || undefined,
 });
 
 const resolve = (name) => {
@@ -85,11 +97,11 @@ const generate = await app.runtime.execute(resolve("generate_job_description"), 
 });
 if (generate.status !== "success") throw new Error(`generate failed: ${JSON.stringify(generate.data)}`);
 
+// Omit docUrl — the trusted URL written by generate_job_description flows from process state.
 const approve = await app.runtime.execute(resolve("approve_job_description"), ctx, {
   processInstanceId,
   idempotencyKey: `live-approve-${suffix}`,
   jobTitle: title,
-  docUrl: generate.data.url,
 });
 if (approve.status !== "success") throw new Error(`approve failed: ${JSON.stringify(approve.data)}`);
 
@@ -114,9 +126,16 @@ if (!rowMatches) {
   throw new Error(`row mismatch at ${rowRange}`);
 }
 
+// Confirm get_recruitment_policy returns the Config-tab policy.
+const policyResult = await app.runtime.execute(resolve("get_recruitment_policy"), ctx, {});
+if (policyResult.status !== "success") throw new Error(`get_recruitment_policy failed: ${JSON.stringify(policyResult.data)}`);
+
 console.log(JSON.stringify({
   ok: true,
   processInstanceId,
+  docId: generate.data.docId,
+  docUrl: generate.data.url,
   rowRange,
   rowMatches,
+  policy: policyResult.data.policy,
 }));

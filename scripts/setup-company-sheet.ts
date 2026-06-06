@@ -6,15 +6,15 @@
 // Tabs:
 //   - rec_jobDesc : id | titre | mgr | url | status        (always)
 //   - Config      : key | value  (+ default policy rows)    (always)
+//   - Users       : email | role  (RH-editable identity)    (always)
 //   - proc_state / proc_audit                               (only with --storage sheets)
 //
 // Usage:
 //   GOOGLE_SERVICE_ACCOUNT_JSON_FILE=./sa.json \
 //   npm run setup-company-sheet -- --sheet <spreadsheetId> [--storage sheets]
 //   npm run setup-company-sheet -- --company config/company.acme.yaml [--storage sheets]
-import { readFileSync } from "node:fs";
 import type { JWT } from "google-auth-library";
-import { createSheetsJwt } from "../src/connectors/google/auth.js";
+import { createSheetsJwt, resolveServiceAccountJsonFromEnv } from "../src/connectors/google/auth.js";
 import { SHEETS_STORAGE_HEADERS } from "../src/storage/sheetsStorageAdapter.js";
 import { loadCompanyConfig } from "../src/core/config/loadCompany.js";
 
@@ -26,11 +26,9 @@ function arg(name: string): string | undefined {
 }
 
 function resolveServiceAccountJson(): string {
-  const file = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_FILE;
-  if (file && file.trim()) return readFileSync(file.trim(), "utf8");
-  const inline = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  if (inline && inline.trim()) return inline;
-  throw new Error("set GOOGLE_SERVICE_ACCOUNT_JSON_FILE or GOOGLE_SERVICE_ACCOUNT_JSON");
+  const json = resolveServiceAccountJsonFromEnv();
+  if (!json) throw new Error("set GOOGLE_SERVICE_ACCOUNT_JSON_FILE or GOOGLE_SERVICE_ACCOUNT_JSON");
+  return json;
 }
 
 function resolveSheetId(): string {
@@ -55,8 +53,15 @@ function requiredTabs(withStorage: boolean): Record<string, { headers: string[];
         ["requireJustification", "false"],
         ["requireProofDoc", "false"],
         ["extraValidationStep", "false"],
+        ["requireStructuredSections", "false"],
+        ["hrNotifyEmail", ""],
       ],
     },
+    // RH-editable identity (D2): maps a person (email/id = x-actor-id) to a company role.
+    // The server reads this to make the Sheet role authoritative over the advisory header.
+    // role hr_admin rows also serve as HR notification recipients at approve (D1, fallback
+    // to the Config key hrNotifyEmail when empty).
+    Users: { headers: ["email", "role"] },
   };
   if (withStorage) {
     tabs.proc_state = { headers: [...SHEETS_STORAGE_HEADERS.proc_state] };

@@ -94,7 +94,11 @@ export class SheetsStorageAdapter implements StorageAdapter {
   async updateStatus(
     companyId: string,
     processInstanceId: string,
-    patch: Pick<ProcessState, "currentStatus" | "currentStep" | "lastToolCalled">,
+    patch: Pick<ProcessState, "currentStatus" | "currentStep" | "lastToolCalled"> & {
+      // The runtime persists trusted external ids (e.g. docUrl) through this call; the type
+      // must carry them so a maintainer who destructures the patch cannot silently drop them.
+      externalReferences?: ProcessState["externalReferences"];
+    },
   ): Promise<ProcessState> {
     const found = await this.findStateRow(companyId, processInstanceId);
     if (!found) throw invalidState(`instance not found: ${processInstanceId}`);

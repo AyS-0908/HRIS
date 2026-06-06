@@ -8,6 +8,7 @@ import { createSheetsConnector } from "./google/sheets.js";
 import { createSheetsConnectorLive } from "./google/sheetsLive.js";
 import { createDriveConnector } from "./google/drive.js";
 import { createGmailConnector } from "./google/gmail.js";
+import { createGmailConnectorLive } from "./google/gmailLive.js";
 import { createFormsConnector } from "./google/forms.js";
 import { createCalendarConnector } from "./google/calendar.js";
 import { createHttpConnector } from "./generic/http.js";
@@ -16,10 +17,6 @@ import { createWebhookConnector } from "./generic/webhook.js";
 export interface ConnectorOptions {
   googleMode: "simulated" | "live";
   serviceAccountJson?: string;
-  // Per-company Docs template + shared Drive folder. When both are present in live mode,
-  // the Docs connector runs live (real Google Doc); otherwise it stays simulated.
-  docsTemplateId?: string;
-  docsFolderId?: string;
   // Optional OAuth user-delegation for Docs/Drive (all three required to activate). When
   // set, the live Docs connector acts as the consenting user (real Doc owned by them) —
   // needed on personal Gmail. Absent ⇒ Docs uses the service account (Shared Drive path).
@@ -35,41 +32,40 @@ export function buildConnectors(logger: Logger, options: ConnectorOptions): Conn
       "GOOGLE_CONNECTORS=live requires a service account (set GOOGLE_SERVICE_ACCOUNT_JSON_FILE or GOOGLE_SERVICE_ACCOUNT_JSON)",
     );
   }
-  // Docs goes live only when a template + folder are configured. Absent ⇒ simulated,
-  // so a live deployment without Docs config keeps the current (simulated) behavior.
-  const liveDocs = liveSheets && !!options.docsTemplateId && !!options.docsFolderId;
-  const docsAuth = liveDocs ? resolveDocsAuth(options) : null;
+  // In live mode the Docs connector is always live; the per-company template + folder are
+  // supplied per call (P2.3 multi-tenant). A company that has not configured Docs fails loud
+  // in the service guard (plan P0.3) — never a silent simulated URL.
+  const liveDocs = liveSheets;
+  // Build the OAuth user-delegation client ONCE — Docs and Gmail both act AS THE SAME
+  // consenting user, so a single client means one token cache (fewer refresh round-trips)
+  // and one wiring site to keep in sync. Live Gmail requires this client (a service account
+  // cannot send without domain-wide delegation); Docs uses it when present, else the service
+  // account (Shared Drive path). The refresh token must carry the gmail.send scope
+  // (GMAIL_SEND_SCOPE) for the Gmail path — see scripts/get-oauth-token.mjs.
+  const hasOAuth = !!(options.oauthClientId && options.oauthClientSecret && options.oauthRefreshToken);
+  const oauthAuth = hasOAuth
+    ? createDocsDriveOAuthClient({
+        clientId: options.oauthClientId!,
+        clientSecret: options.oauthClientSecret!,
+        refreshToken: options.oauthRefreshToken!,
+      })
+    : null;
+  const docsAuth = liveDocs ? (oauthAuth ?? createDocsDriveJwt(options.serviceAccountJson!)) : null;
+  const liveGmail = liveSheets && hasOAuth;
   return {
     docs: liveDocs
-      ? createDocsConnectorLive(
-          logger,
-          docsAuth!.client,
-          { templateId: options.docsTemplateId!, folderId: options.docsFolderId! },
-          docsAuth!.detail,
-        )
+      ? createDocsConnectorLive(logger, docsAuth!.client, docsAuth!.detail)
       : createDocsConnector(logger), // simulated default
     sheets: liveSheets
       ? createSheetsConnectorLive(logger, options.serviceAccountJson!)
       : createSheetsConnector(logger),
     drive: createDriveConnector(logger), // simulated in V1
-    gmail: createGmailConnector(logger), // simulated in V1
+    gmail: liveGmail
+      ? createGmailConnectorLive(logger, oauthAuth!.client)
+      : createGmailConnector(logger), // simulated default (no OAuth creds)
     forms: createFormsConnector(logger), // simulated in V1
     calendar: createCalendarConnector(logger), // simulated in V1
     http: createHttpConnector(logger),
     webhook: createWebhookConnector(logger),
   };
-}
-
-// Picks the Docs/Drive auth mode: OAuth user-delegation when all three OAuth values are
-// present (real Doc owned by the user — works on personal Gmail), else the service account
-// (Shared Drive path, the default). Both yield an OAuth2Client the connector can use.
-function resolveDocsAuth(options: ConnectorOptions) {
-  if (options.oauthClientId && options.oauthClientSecret && options.oauthRefreshToken) {
-    return createDocsDriveOAuthClient({
-      clientId: options.oauthClientId,
-      clientSecret: options.oauthClientSecret,
-      refreshToken: options.oauthRefreshToken,
-    });
-  }
-  return createDocsDriveJwt(options.serviceAccountJson!);
 }

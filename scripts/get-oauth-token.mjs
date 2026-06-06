@@ -3,15 +3,15 @@
 // service account cannot own Drive files). Run once; paste the printed token into .env.
 //
 // Prerequisites (GCP Console, one-time):
-//   1. Enable the Google Drive API + Google Docs API in your project.
+//   1. Enable the Google Drive API + Google Docs API + Gmail API in your project.
 //   2. APIs & Services -> Credentials -> Create OAuth client ID -> type "Desktop app".
 //   3. OAuth consent screen -> External -> add your Google account as a Test user.
 //
-// Usage (PowerShell):
-//   $env:GOOGLE_OAUTH_CLIENT_ID="...apps.googleusercontent.com"
-//   $env:GOOGLE_OAUTH_CLIENT_SECRET="..."
-//   npm run oauth-token
-// Then open the printed URL, approve, and copy GOOGLE_OAUTH_REFRESH_TOKEN into .env.
+// Usage:
+//   1. Put GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET in .env (Desktop-app client).
+//   2. npm run oauth-token   (loads .env via node --env-file)
+//   3. Open the printed URL, approve the consent (incl. gmail.send), and copy the printed
+//      GOOGLE_OAUTH_REFRESH_TOKEN into .env.
 import http from "node:http";
 import { OAuth2Client } from "google-auth-library";
 
@@ -22,10 +22,13 @@ if (!clientId || !clientSecret) {
   process.exit(1);
 }
 
-// Same scopes the live Docs connector needs (copy a template, edit the copy).
+// Scopes the live connectors need: Docs (copy a template, edit the copy) + Drive, plus
+// gmail.send so the same refresh token can send the HR notification email at approve (D1).
+// The Gmail API must also be enabled in the GCP project (APIs & Services -> Library).
 const SCOPES = [
   "https://www.googleapis.com/auth/documents",
   "https://www.googleapis.com/auth/drive",
+  "https://www.googleapis.com/auth/gmail.send",
 ];
 
 const server = http.createServer();
@@ -56,10 +59,33 @@ server.listen(0, () => {
         console.error("\nNo refresh_token returned. Revoke the app's access and retry (prompt=consent).");
         process.exit(1);
       }
-      console.log("\n✓ Add this to your .env:\n");
-      console.log(`GOOGLE_OAUTH_CLIENT_ID=${clientId}`);
-      console.log(`GOOGLE_OAUTH_CLIENT_SECRET=${clientSecret}`);
-      console.log(`GOOGLE_OAUTH_REFRESH_TOKEN=${tokens.refresh_token}\n`);
+
+      // Verify the refresh token actually REDEEMS before we trust it. A token can be valid at
+      // mint yet revoked moments later (a later consent supersedes earlier ones on a Testing
+      // app) — verifying here catches that immediately instead of at first live call.
+      const verify = new OAuth2Client({ clientId, clientSecret });
+      verify.setCredentials({ refresh_token: tokens.refresh_token });
+      const at = await verify.getAccessToken();
+      const info = await verify.getTokenInfo(at.token);
+      const hasGmail = (info.scopes ?? []).includes("https://www.googleapis.com/auth/gmail.send");
+      console.log(`\n✓ Refresh token verified (redeems OK). scopes: ${(info.scopes ?? []).join(" ")}`);
+      if (!hasGmail) {
+        console.error("⚠ gmail.send NOT granted — re-run and tick the 'Send email' permission.");
+      }
+
+      // Write it straight into .env (update the line in place, or append) so there is no
+      // copy-paste / stale-token risk. The file lives in the cwd (run from the repo root).
+      const { readFileSync, writeFileSync, existsSync } = await import("node:fs");
+      const envPath = ".env";
+      const line = `GOOGLE_OAUTH_REFRESH_TOKEN=${tokens.refresh_token}`;
+      let env = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
+      if (/^GOOGLE_OAUTH_REFRESH_TOKEN=.*$/m.test(env)) {
+        env = env.replace(/^GOOGLE_OAUTH_REFRESH_TOKEN=.*$/m, line);
+      } else {
+        env += (env.endsWith("\n") || env === "" ? "" : "\n") + line + "\n";
+      }
+      writeFileSync(envPath, env);
+      console.log(`✓ Wrote GOOGLE_OAUTH_REFRESH_TOKEN into ${envPath}. You're ready — no copy-paste needed.\n`);
       server.close();
       process.exit(0);
     } catch (e) {

@@ -21,14 +21,18 @@ inferred downstream):
 
 | Header | Meaning |
 | --- | --- |
-| `x-api-key` | the company's API key (authentication) |
+| `x-api-key` | the API key (authentication). **V1: a single shared server key** — not yet per-company; the tenant comes from `x-company-id`. Per-company keys are planned. |
 | `x-company-id` | the `companyId` from the company config |
-| `x-actor-id` | this person's stable id |
-| `x-actor-role` | this person's role — must be one of the company's configured `roles` |
+| `x-actor-id` | this person's stable id (their email — the `Users` tab key) |
+| `x-actor-role` | this person's role — **advisory** (fallback only; see below) |
 
-Roles are validated against the company config; an unknown company, missing actor, or role
-not in the config is rejected (`FORBIDDEN`). **These headers are the only source of identity
-— they cannot be overridden from the Sheet's Config tab.**
+**Identity from the Sheet (D2):** the effective role is resolved server-side from the
+RH-editable `Users` tab (`email | role`) of the company sheet, keyed by `x-actor-id`. RH can
+re-assign a person's role by editing that tab — no redeploy. The `x-actor-role` header is only
+a fallback used when the `Users` tab is absent/empty or the person is unlisted. Either way the
+effective role must be one of the company config's `roles` (the closed set of *valid* roles);
+otherwise the request is rejected (`FORBIDDEN`). The `Config` (policy) and `Users` (identity)
+tabs are separate; policy keys can never grant a role.
 
 ## 3. Claude Desktop config (per DRH)
 
@@ -61,7 +65,9 @@ recruter…"* and the [hr-recruitment Skill](../skills/hr-recruitment/SKILL.md) 
 ## 4. Smoke check
 
 - `list_available_business_tools` lists `submit_job_request`, `generate_job_description`,
-  `approve_job_description`, `get_recruitment_policy`.
+  `approve_job_description`, `get_recruitment_policy` (4 tools).
 - A full `submit → generate → approve` yields an `approved` fiche whose row in `rec_jobDesc`
   holds the **live** doc URL, openable by both a manager and an HR member of the shared
-  Drive folder.
+  Drive folder. At approve, HR is **notified by email** (D1) — recipients are the `Users` rows
+  with role `hr_admin` (fallback: Config key `hrNotifyEmail`). Publishing/diffusion is a
+  separate future module.

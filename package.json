@@ -10,14 +10,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/server/index.js",
-    "dev": "tsx watch src/server/index.ts",
+    "start": "node --env-file=.env dist/server/index.js",
+    "dev": "tsx watch --env-file=.env src/server/index.ts",
     "test": "vitest run",
     "test:contract": "vitest run tests/contract",
     "create-module": "tsx scripts/create-module.ts",
     "create-company": "tsx scripts/create-company.ts",
     "setup-company-sheet": "tsx scripts/setup-company-sheet.ts",
-    "oauth-token": "node scripts/get-oauth-token.mjs",
+    "oauth-token": "node --env-file=.env scripts/get-oauth-token.mjs",
     "check-standard": "tsx scripts/check-standard.ts",
     "report-maintenance": "tsx scripts/report-maintenance.ts",
     "smoke:live": "node scripts/live-sheets-smoke-test.mjs"

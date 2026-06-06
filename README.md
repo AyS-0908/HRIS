@@ -79,7 +79,10 @@ Then `npm run build && node --env-file=.env dist/server/index.js`.
 > `node --env-file` cannot parse inline — always use `GOOGLE_SERVICE_ACCOUNT_JSON_FILE`.
 > `GOOGLE_SERVICE_ACCOUNT_JSON` (single-line inline) remains as a fallback.
 
-Only the Sheets connector goes live; Docs/Drive remain simulated until wired.
+In live mode the **Sheets**, **Docs**, and **Gmail** connectors go live (Docs needs a
+per-company template + shared folder; Gmail needs OAuth `gmail.send` — see
+[docs/onboarding-company.md](docs/onboarding-company.md)). Drive/Forms/Calendar/http/webhook
+remain simulated skeletons.
 
 ## Sheets storage backend (optional)
 
@@ -115,7 +118,8 @@ docker run -p 3000:3000 \
 
 ## V1 scope notes
 
-- HR sample = "Fiche poste" (job description) process: `submit_job_request` → `generate_job_description` → `approve_job_description`.
+- HR sample = "Fiche poste" (job description) process: `submit_job_request` → `generate_job_description` → `approve_job_description`, plus the read-only `get_recruitment_policy` (4 tools). At approve, HR is notified by email (D1). Publishing is deferred to a future module.
+- Identity: the actor role is resolved from the RH-editable `Users` tab (`email | role`) of the company sheet (D2); the `x-actor-role` header is advisory; the company YAML stays the set of valid roles.
 - Storage runs through a `StorageAdapter`: in-memory by default, or the Google Sheets reference impl via `STORAGE_BACKEND=sheets` (swappable without core edits).
-- Google connectors are simulated by default; the Sheets connector supports live writes via `GOOGLE_CONNECTORS=live` (see above).
+- Google connectors are simulated by default; **Sheets, Docs and Gmail** support live operation via `GOOGLE_CONNECTORS=live` (+ OAuth for Docs-on-personal-Gmail and for Gmail). Drive/Forms/Calendar/http/webhook stay simulated.
 - See [memory/implementation-notes.md](memory/implementation-notes.md) for spec deltas.

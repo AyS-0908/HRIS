@@ -78,6 +78,62 @@ describe("hr.recruitment Fiche poste", () => {
     expect(audit.at(-1)?.statusAfter).toBe("approved");
   });
 
+  it("notifies HR by email at approve (D1) and records the send_email output", async () => {
+    // Simulate a Users tab with an hr_admin so a recipient resolves (simulated sheets → []).
+    app.connectors.sheets.getValues = async () => ({
+      values: [["email", "role"], ["hr@acme.test", "hr_admin"], ["mgr@acme.test", "manager"]],
+    });
+    const submit = await app.runtime.execute(resolve(app, "submit_job_request"), ctx("manager"), {
+      title: "Backend Engineer",
+      justification: "Team growth",
+      plannedHire: true,
+    });
+    const id = submit.data.processInstanceId as string;
+    await app.runtime.execute(resolve(app, "generate_job_description"), ctx("manager"), {
+      processInstanceId: id,
+      idempotencyKey: "gen-d1",
+      targetSummary: "Owns the API layer",
+    });
+    const approve = await app.runtime.execute(resolve(app, "approve_job_description"), ctx("manager"), {
+      processInstanceId: id,
+      idempotencyKey: "appr-d1",
+      jobTitle: "Backend Engineer",
+    });
+    expect(approve.status).toBe("success");
+    expect(approve.data.status).toBe("approved");
+    expect(approve.data.messageId).toBeTruthy(); // simulated gmail returns a trace id
+    const approveAudit = auditFor(app, id).at(-1)!;
+    expect(approveAudit.toolName).toBe("approve_job_description");
+    expect(approveAudit.externalOutputs.approve_notify_messageId).toBeTruthy();
+  });
+
+  it("approval still succeeds when the HR email fails (best-effort)", async () => {
+    app.connectors.sheets.getValues = async () => ({ values: [["hr@acme.test", "hr_admin"]] });
+    app.connectors.gmail.sendEmail = async () => {
+      throw new Error("smtp down");
+    };
+    const submit = await app.runtime.execute(resolve(app, "submit_job_request"), ctx("manager"), {
+      title: "Role",
+      justification: "j",
+      plannedHire: true,
+    });
+    const id = submit.data.processInstanceId as string;
+    await app.runtime.execute(resolve(app, "generate_job_description"), ctx("manager"), {
+      processInstanceId: id,
+      idempotencyKey: "gen-fail",
+      targetSummary: "x",
+    });
+    const approve = await app.runtime.execute(resolve(app, "approve_job_description"), ctx("manager"), {
+      processInstanceId: id,
+      idempotencyKey: "appr-fail",
+      jobTitle: "Role",
+    });
+    expect(approve.status).toBe("success");
+    expect(approve.data.status).toBe("approved");
+    expect(approve.data.rowId).toBeTruthy();
+    expect(approve.data.messageId).toBeUndefined(); // email failed, approval stands
+  });
+
   it("rejects bad input with VALIDATION_ERROR", async () => {
     expect(await codeOf(app.runtime.execute(resolve(app, "submit_job_request"), ctx("manager"), {}))).toBe(
       "VALIDATION_ERROR",
@@ -157,6 +213,7 @@ describe("hr.recruitment Fiche poste", () => {
       requireJustification: false,
       requireProofDoc: false,
       extraValidationStep: false,
+      requireStructuredSections: false,
     });
   });
 

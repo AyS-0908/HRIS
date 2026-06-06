@@ -92,7 +92,7 @@ Anything not specified anywhere = simplest correct option, noted in a code comme
 ## Project gotchas (recorded so they don't repeat)
 
 - The HR recruitment sample uses **coarse** tools (`submit_job_request`, `approve_job_description`…), not raw technical steps. Match that granularity when adding tools.
-- Production-grade Google auth is **out of V1 scope**. Connectors are provider-neutral skeletons; the only fully working path is Sheets (for the storage adapter).
+- Connectors are provider-neutral surfaces. Live paths now exist for **Sheets** (service account), **Docs** (service-account Shared Drive *or* OAuth user-delegation) and **Gmail** (OAuth `gmail.send`, used for the HR notification at approve — D1). Drive/forms/calendar/http/webhook remain simulated skeletons. Live Gmail is code-complete + unit-tested but its end-to-end send is only verifiable after the operator runs an OAuth re-consent including `gmail.send` (see Progress.md).
 - `[Assumed]` in the spec (e.g. header-based identity) marks an unresolved decision — keep the resolved fields stable; only the extraction may change.
 
 ---

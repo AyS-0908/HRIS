@@ -7,6 +7,7 @@ import {
   approveJobDescriptionInput,
   generateJobDescriptionInput,
   submitJobRequestInput,
+  STRUCTURED_SECTION_KEYS,
   type ApproveJobDescriptionInput,
   type GenerateJobDescriptionInput,
   type SubmitJobRequestInput,
@@ -63,6 +64,17 @@ const generateJobDescription: ToolDefinition = {
   },
   async handler(_ctx, input, deps) {
     const i = input as GenerateJobDescriptionInput;
+    // Determinism (plan P1.2): a company may require the structured sections. When it does,
+    // every section must be supplied — otherwise VALIDATION_ERROR (no free-form fallback).
+    const policy = await resolveRecruitmentPolicy(deps);
+    if (policy.requireStructuredSections) {
+      const missing = STRUCTURED_SECTION_KEYS.filter((k) => !i[k] || !i[k]!.trim());
+      if (missing.length > 0) {
+        throw validationError(
+          `company policy requires structured sections: missing ${missing.join(", ")}`,
+        );
+      }
+    }
     const { docId, url } = await draftJobDescriptionDoc(deps, i, i.targetSummary);
     return { status: "success", data: { docId, url }, traceIds: [docId] };
   },
@@ -79,7 +91,7 @@ const approveJobDescription: ToolDefinition = {
     allowedStatusesBefore: [STATUS.pendingValidation],
     statusAfterSuccess: STATUS.approved,
     requiredRole: "manager", // human validation: only the manager transitions it
-    sideEffects: ["update_sheet"],
+    sideEffects: ["update_sheet", "send_email"], // D1: notify HR when the row is written
     auditLevel: "strict",
     idempotent: true,
   },
@@ -91,8 +103,10 @@ const approveJobDescription: ToolDefinition = {
     if (policy.requireProofDoc && !i.proofDocUrl) {
       throw validationError("company policy requires a proof document (set proofDocUrl)");
     }
-    const { rowId } = await appendRecJobDescRow(deps, i);
-    return { status: "success", data: { rowId }, traceIds: [rowId] };
+    // Writes the rec_jobDesc row, then best-effort notifies HR by email (D1). A failed email
+    // never fails the approval (the status already transitioned in the runtime).
+    const { rowId, messageId } = await appendRecJobDescRow(deps, i);
+    return { status: "success", data: { rowId, messageId }, traceIds: [rowId] };
   },
 };
 

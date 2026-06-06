@@ -25,6 +25,10 @@ export function createSheetsConnectorLive(logger: Logger, serviceAccountJson: st
       const url =
         `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.sheetId)}` +
         `/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+      // Column order = the insertion order of input.values' keys. Callers (services) build
+      // that object in the tab's documented header order (e.g. rec_jobDesc: id,titre,mgr,url,
+      // status), and JS preserves string-key insertion order — so the row aligns with the
+      // headers. Keep the service-side object literal in header order.
       const res = await client.request<{ updates?: { updatedRange?: string } }>({
         url,
         method: "POST",

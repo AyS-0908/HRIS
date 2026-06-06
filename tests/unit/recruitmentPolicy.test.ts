@@ -42,6 +42,7 @@ describe("resolveRecruitmentPolicy", () => {
       requireJustification: true,
       requireProofDoc: true,
       extraValidationStep: false,
+      requireStructuredSections: false,
     });
   });
 
@@ -59,6 +60,7 @@ describe("resolveRecruitmentPolicy", () => {
       "extraValidationStep",
       "requireJustification",
       "requireProofDoc",
+      "requireStructuredSections",
     ]);
   });
 

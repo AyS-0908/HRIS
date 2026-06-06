@@ -5,10 +5,10 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { RequestContext } from "../shared/types/contracts.js";
 import type { App } from "../app.js";
 import { resolveApiKeyId } from "../core/auth/apiKey.js";
 import { resolveContext, type IdentityHeaders } from "../core/auth/context.js";
+import { resolveActorRole } from "../core/auth/resolveActorRole.js";
 import { toInputSchema } from "../core/validation/inputSchema.js";
 import { AppError, toClientError } from "../core/errors/appError.js";
 import { STANDARD_VERSION } from "../version.js";
@@ -41,10 +41,17 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
     { capabilities: { tools: {} } },
   );
 
-  // Resolves company-scoped identity; throws AppError (UNAUTHENTICATED/FORBIDDEN).
-  const resolveFullContext = (): RequestContext => {
-    const apiKeyId = resolveApiKeyId(headers.apiKey, app.config.apiKey);
-    return resolveContext(headers, apiKeyId, app.companies);
+  // Resolves the actor's role from the company `Users` tab (D2). Authoritative when present;
+  // null ⇒ resolveContext falls back to the advisory header role. Generic + best-effort: a
+  // missing tab/sheet or a read failure returns null (never throws). Reads ITS OWN tracking
+  // sheet, scoped by the validated companyId.
+  const resolveRoleFromSheet = async (): Promise<string | null> => {
+    const companyId = headers.companyId?.trim();
+    const actorId = headers.actorId?.trim();
+    if (!companyId || !actorId || !app.companies.has(companyId)) return null;
+    const sheetId = app.companies.get(companyId)!.resources.googleSheets?.hrRecruitmentSheetId;
+    if (!sheetId) return null;
+    return resolveActorRole(companyId, actorId, sheetId, app.connectors.sheets, app.logger);
   };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -53,6 +60,9 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
     const core = CORE_TOOLS.map((t) => ({ ...t, inputSchema: EMPTY_INPUT }));
     let business: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [];
     try {
+      // Tool visibility depends only on the company's enabled modules, NOT on the actor role,
+      // so we skip the Users-tab read (resolveRoleFromSheet) here — it would add a Sheets
+      // round-trip per handshake without changing the returned list.
       const ctx = resolveContext(headers, "listing", app.companies);
       business = app.enabledToolsFor(ctx.companyId).map((rt) => ({
         name: rt.tool.name,
@@ -75,7 +85,8 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
       if (name === "health_check") return ok(await healthCheck(app));
       if (name === "get_standard_version") return ok({ standardVersion: STANDARD_VERSION });
 
-      const ctx = resolveContext(headers, apiKeyId, app.companies);
+      const roleOverride = await resolveRoleFromSheet();
+      const ctx = resolveContext(headers, apiKeyId, app.companies, roleOverride);
 
       if (name === "list_available_business_tools") {
         return ok({

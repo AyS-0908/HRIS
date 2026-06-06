@@ -25,7 +25,7 @@ A reusable MCP server. Core code is generic; business logic plugs in as **module
 
 ## External dependencies
 
-- Google connectors (drive, docs, sheets, gmail, forms, calendar): V1 = provider-neutral skeletons; only Sheets has a live path (the rest are simulated).
+- Google connectors (drive, docs, sheets, gmail, forms, calendar): provider-neutral surfaces. Live paths: **Sheets** (service account), **Docs** (service-account Shared Drive *or* OAuth user-delegation), **Gmail** (OAuth `gmail.send`). Drive/forms/calendar remain simulated skeletons.
 - Generic connectors: http, webhook.
 - Deploy target: Docker / Coolify VPS.
 

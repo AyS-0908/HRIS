@@ -8,8 +8,9 @@ Compact log of decisions/changes not in SPEC.md. AI-native, terse.
 ## Spec deltas (V1 scope, user-approved)
 - §15.11: DONE (2026-06-03). `SheetsStorageAdapter` persists `ProcessState` to `proc_state` tab and `AuditEvent` to `proc_audit` tab via Sheets REST API. Shared auth in `connectors/google/auth.ts`. Selected via `STORAGE_BACKEND=sheets` in `storage/index.ts` factory — runtime untouched. Default remains InMemory.
 - §15.12: no non-HR sample in V1. Reusability proven via `_template` + `scripts/create-module.ts`.
-- HR scope = "Fiche poste" only (steps 1.1–1.3): tools `submit_job_request`, `generate_job_description`, `approve_job_description`. publish/candidates deferred.
-- Google writes: GDoc/Drive = simulated (trace ids). Sheets `rec_jobDesc` row = LIVE-capable since 2026-06-03 (`GOOGLE_CONNECTORS=live`); simulated remains the default. See "Post-V1 — live Google Sheets".
+- HR scope = "Fiche poste" only (steps 1.1–1.3): tools `submit_job_request`, `generate_job_description`, `approve_job_description`, plus read-only `get_recruitment_policy` (4 tools). publish/candidates deferred to a future module (D4 — `publish_job_opening` removed 2026-06-05).
+- Google writes (live mode, 2026-06-05): GDoc = LIVE (copy template → shared folder, `docsLive.ts`, service-account Shared Drive OR OAuth user-delegation). Sheets `rec_jobDesc` row = LIVE (`sheetsLive.ts`). Gmail = LIVE (`gmailLive.ts`, OAuth `gmail.send`) — HR notified at approve (D1). Drive/Forms/Calendar/http/webhook stay simulated. Simulated remains the default when `GOOGLE_CONNECTORS` ≠ live or OAuth creds absent.
+- Identity (D2): actor role resolved from the RH-editable `Users` tab (`email | role`) of the company sheet (`core/auth/resolveActorRole.ts`, 60 s cache); `x-actor-role` header is advisory; YAML = set of valid roles. Absent/empty Users tab ⇒ header-role behavior (anti-regression).
 
 ## Decisions not in spec
 - Creator tools (those that start an instance) are identified by `allowedStatusesBefore: []`. The runtime then creates the instance at `statusAfterSuccess` instead of loading+gating. Non-creator tools require `processInstanceId` in their input.
@@ -21,7 +22,7 @@ Compact log of decisions/changes not in SPEC.md. AI-native, terse.
 - Module scaffolding templates use `.tmpl` extension so tsc ignores them; `create-module` strips it and substitutes `__DOMAIN__`/`__MODULE__`/`__MODULE_NAME__`.
 
 ## Post-V1 — live Google Sheets
-- Added `google-auth-library` (JWT service-account). `GOOGLE_CONNECTORS=live` swaps ONLY the Sheets connector to live (`sheetsLive.ts`); docs/drive/http/webhook stay simulated.
+- Added `google-auth-library` (JWT service-account). `GOOGLE_CONNECTORS=live` now swaps Sheets (`sheetsLive.ts`), Docs (`docsLive.ts`) and — with OAuth creds — Gmail (`gmailLive.ts`) to live; drive/forms/calendar/http/webhook stay simulated. (Historical note: at 2026-06-03 only Sheets was live.)
 - `appendRow` (live) POSTs to Sheets API `values:append` (RAW, INSERT_ROWS); row = `Object.values(values)` so the service must build the record in column order (id, titre, mgr, url, status).
 - Target sheet must have a `rec_jobDesc` tab; share it with the SA `client_email`. Test sheet id wired in `config/company.example.yaml`.
 - Connector failures now mapped to `CONNECTOR_ERROR` in `service.ts` (was INTERNAL).

@@ -15,7 +15,7 @@ import { InMemoryIdempotencyStore } from "./runtime/idempotencyStore.js";
 import { ProcessRuntime } from "./runtime/processRuntime.js";
 import { validateModule } from "./registry/validateModule.js";
 import { ALL_MODULES } from "./modules/index.js";
-import { readFileSync } from "node:fs";
+import { resolveServiceAccountJsonFromEnv } from "./connectors/google/auth.js";
 
 export interface AppConfig {
   apiKey: string;
@@ -70,24 +70,26 @@ export function buildApp(config: AppConfig): App {
   const tools = new ToolRegistry(modules);
   const processes = new ProcessRegistry(modules);
 
-  // Docs live config is per-company; V1 uses the first company's resources (mirrors how
-  // Sheets storage reuses the first company's spreadsheet). Absent ⇒ Docs stays simulated.
-  const firstCompanyResources = companies.list()[0]?.resources;
+  // Docs live config is resolved PER COMPANY at call time (the runtime threads the calling
+  // company's resources into the service — P2.3). The connector is selected purely by live
+  // mode; no first-company bias here.
   const connectors = buildConnectors(logger, {
     googleMode: config.googleConnectors,
     serviceAccountJson: config.serviceAccountJson,
-    docsTemplateId: firstCompanyResources?.googleDocs?.jobDescriptionTemplateId || undefined,
-    docsFolderId: firstCompanyResources?.googleDrive?.hrKnowledgeFolderId || undefined,
     oauthClientId: config.oauthClientId,
     oauthClientSecret: config.oauthClientSecret,
     oauthRefreshToken: config.oauthRefreshToken,
   });
-  // Sheets storage reuses the first company's recruitment spreadsheet (its proc_state /
-  // proc_audit tabs). Records carry companyId, so one sheet serves all companies (V1).
+  // Sheets storage is routed PER COMPANY: each tenant's process state + audit persist to ITS
+  // OWN recruitment spreadsheet (proc_state / proc_audit tabs). The in-memory backend is a
+  // single companyId-keyed store. Swappable without core edits (StorageAdapter interface).
   const storage = buildStorage(logger, {
     backend: config.storageBackend,
     serviceAccountJson: config.serviceAccountJson,
-    sheetId: companies.list()[0]?.resources.googleSheets?.hrRecruitmentSheetId,
+    companies: companies.list().map((c) => ({
+      companyId: c.company.id,
+      sheetId: c.resources.googleSheets?.hrRecruitmentSheetId,
+    })),
   });
   const idempotency = new InMemoryIdempotencyStore();
   const runtime = new ProcessRuntime({
@@ -128,20 +130,9 @@ export function loadAppConfigFromEnv(): AppConfig {
     logLevel: (process.env.LOG_LEVEL as AppConfig["logLevel"]) ?? "info",
     googleConnectors: process.env.GOOGLE_CONNECTORS === "live" ? "live" : "simulated",
     storageBackend: process.env.STORAGE_BACKEND === "sheets" ? "sheets" : "memory",
-    serviceAccountJson: resolveServiceAccountJson(),
+    serviceAccountJson: resolveServiceAccountJsonFromEnv(),
     oauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID?.trim() || undefined,
     oauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim() || undefined,
     oauthRefreshToken: process.env.GOOGLE_OAUTH_REFRESH_TOKEN?.trim() || undefined,
   };
-}
-
-// The service-account JSON is multi-line (its private_key contains newlines), which
-// `node --env-file` cannot parse inline. Prefer a file path; fall back to inline JSON.
-function resolveServiceAccountJson(): string | undefined {
-  const file = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_FILE;
-  if (file && file.trim()) {
-    return readFileSync(file.trim(), "utf8");
-  }
-  const inline = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  return inline && inline.trim() ? inline : undefined;
 }

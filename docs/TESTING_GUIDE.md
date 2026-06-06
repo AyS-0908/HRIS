@@ -7,8 +7,8 @@ Un agent IA (Claude, etc.) l'utilise comme moteur sécurisé : identité, droits
 étapes, traçabilité. Trois étapes dans la V1 :
 
 1. **Soumettre une demande** — un manager ouvre un dossier de recrutement
-2. **Générer la fiche de poste** — l'IA rédige un brouillon (simulé en V1)
-3. **Approuver la fiche** — le manager valide et enregistre dans Google Sheets (optionnel)
+2. **Générer la fiche de poste** — l'IA rédige un brouillon (un vrai Google Doc en mode live)
+3. **Approuver la fiche** — le manager valide, enregistre la ligne Google Sheets et **notifie les RH par email** (D1)
 
 Le serveur protège chaque étape : bon rôle, bon ordre, zéro doublon, tout tracé.
 
@@ -30,20 +30,23 @@ Couvre l'intégralité des règles du standard sans aucune configuration.
 npm test
 ```
 
-**Résultat attendu : 13 tests verts, 0 erreur.**
+**Résultat attendu : 45 tests verts, 0 erreur.**
 
 Ce que les tests vérifient en termes métier :
 
 | Groupe de tests | Ce qui est vérifié |
 |---|---|
-| Contrats (`toolRegistry`, `storageAdapter`) | Tous les outils et la persistance respectent le standard |
+| Contrats (`standard`, `storageAdapter`) | Tous les outils et la persistance respectent le standard |
 | Workflow complet (submit → generate → approve) | Le parcours normal fonctionne de bout en bout |
 | Mauvaise saisie | Un formulaire incomplet est rejeté |
 | Contrôle de rôle | Un employé ne peut pas approuver — seul le manager peut |
 | Ordre des étapes | On ne peut pas rejouer une étape dans le mauvais ordre |
 | Anti-doublon | Relancer la même étape deux fois ne crée pas de doublon |
+| Email RH à l'approbation (D1) | `approve` notifie les RH ; un échec d'email ne fait pas échouer l'approbation |
+| Identité depuis la feuille (D2) | Le rôle est résolu depuis l'onglet `Users` ; repli sur l'en-tête si absent |
+| Connecteur Gmail live | Construction RFC822/base64url + mapping d'erreur `CONNECTOR_ERROR` |
 
-Si les 13 tests sont verts : **le cœur du système est conforme à la spec.**
+Si les tests sont verts : **le cœur du système est conforme à la spec.**
 
 ---
 
@@ -171,19 +174,25 @@ $r3    = Invoke-RestMethod http://localhost:3000/mcp -Method POST -Headers $h -B
         jsonrpc = "2.0"; id = 3; method = "tools/call"
         params  = @{
             name      = "approve_job_description"
-            arguments = @{ processInstanceId = $instanceId; idempotencyKey = "appr-1"; jobTitle = "Ingénieur Backend"; docUrl = "https://docs.example.com/fiche" }
+            arguments = @{ processInstanceId = $instanceId; idempotencyKey = "appr-1"; jobTitle = "Ingénieur Backend" }
         }
     }
 )
 $data3 = $r3.result.content[0].text | ConvertFrom-Json
 Write-Host "==> Statut : $($data3.data.status)"
 Write-Host "==> Ligne sheet : $($data3.data.rowId)"
+Write-Host "==> Email RH : $($data3.data.messageId)"
 ```
+
+> Pas de `docUrl` ici : le serveur réutilise l'URL de confiance produite à l'étape *generate*
+> (persistée dans l'état du process). Le `messageId` n'apparaît que si un destinataire RH est
+> résolu (onglet `Users` rôle `hr_admin`, ou clé Config `hrNotifyEmail`).
 
 **Résultat attendu :**
 ```
 ==> Statut     : approved   (le dossier est validé)
-==> Ligne sheet : row_xxxxxxxxxxxxxxxx  (identifiant de la ligne simulée)
+==> Ligne sheet : row_xxxxxxxxxxxxxxxx  (identifiant de la ligne)
+==> Email RH    : msg_xxxxxxxxxxxxxxxx  (vide si aucun destinataire RH configuré)
 ```
 
 ---
@@ -231,7 +240,7 @@ $rForbidden = Invoke-RestMethod http://localhost:3000/mcp -Method POST -Headers 
         jsonrpc = "2.0"; id = 31; method = "tools/call"
         params  = @{
             name      = "approve_job_description"
-            arguments = @{ processInstanceId = $newId; idempotencyKey = "bad-1"; jobTitle = "Test"; docUrl = "u" }
+            arguments = @{ processInstanceId = $newId; idempotencyKey = "bad-1"; jobTitle = "Test" }
         }
     }
 )
@@ -248,7 +257,7 @@ Write-Host "==> Code erreur : $(($rForbidden.result.content[0].text | ConvertFro
 # Ouvrir un nouveau dossier
 $rD    = Invoke-RestMethod http://localhost:3000/mcp -Method POST -Headers $h -Body (
     ConvertTo-Json -Depth 5 @{
-        jsonrpc = "2.0"; id = 40; method = "tools/call"
+        jsonrpc = "2.0"; id = 45; method = "tools/call"
         params  = @{ name = "submit_job_request"; arguments = @{ title = "Test doublon"; justification = "test"; plannedHire = $false } }
     }
 )
@@ -308,7 +317,7 @@ Relancer le serveur (`npm run build && npm start`) et rejouer le scénario du Te
 
 | Ce qu'on teste | Comment | Signe de succès |
 |---|---|---|
-| Tout le cœur (recommandé) | `npm test` | 13 verts, 0 erreur |
+| Tout le cœur (recommandé) | `npm test` | 45 verts, 0 erreur |
 | Serveur vivant | GET `/healthz` | `ok : True` |
 | Workflow complet (3 étapes) | Test 2 commandes 1–3 | statut passe à `approved` |
 | Validation des entrées | Test 2 étape E — VALIDATION_ERROR | `Code erreur : VALIDATION_ERROR` |

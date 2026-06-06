@@ -1,8 +1,8 @@
-// Anti-regression guard for live Docs config (plan 1b/1c). In live mode:
-//  - both template + folder absent  ⇒ Docs stays simulated, generate succeeds (opt-out).
-//  - exactly one present (XOR)       ⇒ generate fails VALIDATION_ERROR (misconfiguration).
-// Uses a fake service account: no live API call happens on these paths (the simulated Docs
-// connector is used, and the guard throws before any Sheets call).
+// Config guard for live Docs (plan P0.3 — fail loud, never a fake URL). In live mode the
+// whole point of generate_job_description is a REAL shared doc, so:
+//  - both template + folder absent  ⇒ VALIDATION_ERROR (not a silent simulated URL).
+//  - exactly one present (XOR)       ⇒ VALIDATION_ERROR (misconfiguration).
+// Uses a fake service account: the guard throws before any live API call.
 import { describe, it, expect } from "vitest";
 import { buildApp, type App } from "../../src/app.js";
 import type { RequestContext } from "../../src/shared/types/contracts.js";
@@ -47,16 +47,17 @@ async function startInstance(app: App): Promise<string> {
 }
 
 describe("live Docs config guard", () => {
-  it("both template+folder absent ⇒ Docs simulated, generate succeeds in live mode", async () => {
+  it("both template+folder absent ⇒ VALIDATION_ERROR in live mode (no fake URL)", async () => {
     const app = liveApp("tests/fixtures/company.docs-none.yaml"); // both Docs ids ""
     const id = await startInstance(app);
-    const gen = await app.runtime.execute(resolve(app, "generate_job_description"), ctx, {
-      processInstanceId: id,
-      idempotencyKey: "g1",
-      targetSummary: "x",
-    });
-    expect(gen.status).toBe("success");
-    expect(gen.data.url).toBeTruthy();
+    const code = await codeOf(
+      app.runtime.execute(resolve(app, "generate_job_description"), ctx, {
+        processInstanceId: id,
+        idempotencyKey: "g1",
+        targetSummary: "x",
+      }),
+    );
+    expect(code).toBe("VALIDATION_ERROR");
   });
 
   it("only template set (XOR) ⇒ VALIDATION_ERROR with a clear message", async () => {

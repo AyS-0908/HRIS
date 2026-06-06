@@ -12,13 +12,16 @@ in its own Drive (RGPD-friendly, multi-company).
 2. **A Google Doc template** — the model fiche de poste, containing the placeholders the MCP
    replaces when it drafts a doc:
    - `{{TITLE}}` — the job title
-   - `{{SUMMARY}}` — a short summary
-   - `{{BODY}}` — the drafted body
+   - `{{SUMMARY}}` — a one-line summary
+   - `{{BODY}}` — the full drafted body (all sections concatenated; legacy fallback)
+   - `{{MISSION}}`, `{{RESPONSIBILITIES}}`, `{{PROFILE}}`, `{{CONTEXT}}` — the four structured
+     sections, for precise placement (recommended for a deterministic, reproducible layout)
    A template without placeholders still works (you get a titled copy); placeholders just let
-   the content be injected.
-3. **A Google Sheet** — recruitment tracking. The MCP needs a `rec_jobDesc` tab and a
-   `Config` tab (created for you by `setup-company-sheet`, below). If you run the Sheets
-   storage backend, it also needs `proc_state` / `proc_audit` tabs.
+   the content be injected. Prefer the four structured placeholders over `{{BODY}}`.
+3. **A Google Sheet** — recruitment tracking. The MCP needs a `rec_jobDesc` tab, a `Config`
+   tab, and a `Users` tab (`email | role`, the RH-editable identity map — D2), all created for
+   you by `setup-company-sheet` (below). If you run the Sheets storage backend, it also needs
+   `proc_state` / `proc_audit` tabs.
 4. **Share all three** (folder, Doc, Sheet) with the **service-account email** (the
    `client_email` of `GOOGLE_SERVICE_ACCOUNT_JSON`) with **edit** access. Without this the
    MCP cannot copy the template, write rows, or read the Config tab.
@@ -32,9 +35,15 @@ The company then provides:
 | Drive **folder** id | `resources.googleDrive.hrKnowledgeFolderId` |
 | Doc **template** id | `resources.googleDocs.jobDescriptionTemplateId` |
 | Sheet id | `resources.googleSheets.hrRecruitmentSheetId` |
-| user list (`actorId` + role per person) | identity headers (see [pilot-access.md](pilot-access.md)) |
+| user list (`email` + role per person) | entered in the **`Users` tab** of the Sheet (RH-editable, D2) — see [pilot-access.md](pilot-access.md). At least one `hr_admin` row doubles as the email recipient for the approve notification (D1). |
 
 The operator issues an **API key** for the company.
+
+> **V1 reality (do not over-promise):** the server today authenticates against a **single
+> shared `API_KEY`** ([src/core/auth/apiKey.ts](../src/core/auth/apiKey.ts)) — it is **not yet
+> bound per company**. The tenant is selected by the separate `x-company-id` header. Per-company
+> keys (a key→companyId map so a key can only act as its own tenant) are a planned change; until
+> then every company uses the same operator key + its own `x-company-id`.
 
 > A Drive/Doc/Sheet id is the long token in its URL, e.g.
 > `https://drive.google.com/drive/folders/<FOLDER_ID>` ,
@@ -74,11 +83,17 @@ The `Config` tab is seeded with the default **process policy** (all off ⇒ curr
 | `requireJustification` | `false` | reinforce the justification ask (surfaced to the Skill) |
 | `requireProofDoc` | `false` | require a `proofDocUrl` before approval (enforced by the MCP) |
 | `extraValidationStep` | `false` | the Skill walks an extra human-validation confirmation |
+| `requireStructuredSections` | `false` | require the 4 sections (mission/responsibilities/profile/context) at generate (enforced by the MCP) |
+| `hrNotifyEmail` | *(empty)* | fallback HR recipient for the approve email (D1) when no `Users` row has role `hr_admin` |
 
 The company edits these values to shape **its process**. Security guardrail: only these keys
-are honored — any other key in the `Config` tab (including anything resembling
-identity/roles/permissions) is **ignored**. Identity, roles and permissions live only in the
-server config and are never editable from the Sheet.
+are honored — any other key in the `Config` tab is **ignored**. Identity lives in the separate
+`Users` tab (email → role), and the closed set of *valid* roles/permissions still comes from
+the server config — a `Config` policy key can never grant a role.
+
+The **`Users` tab** (`email | role`) is created empty (header row only); RH fills one row per
+person, e.g. `marie.dupont@acme.com | manager`, `drh@acme.com | hr_admin`. The server resolves
+each caller's role from this tab (D2); editing it re-assigns roles with no redeploy.
 
 ## 4. Enable the company
 
@@ -92,16 +107,19 @@ Restart the server. Onboarding done — no core code was touched.
 
 ## 5. Go live (real Google Doc)
 
-The Docs connector runs **live** (creates a real, shared Google Doc) only when:
+With `GOOGLE_CONNECTORS=live`, the Docs connector is live and **each company's own template +
+folder are used per request** (true multi-tenant — no shared/first-company bias). So in live
+mode a company **must** configure both `googleDocs.jobDescriptionTemplateId` and
+`googleDrive.hrKnowledgeFolderId`.
 
-- `GOOGLE_CONNECTORS=live`, **and**
-- the company config has both `googleDocs.jobDescriptionTemplateId` and
-  `googleDrive.hrKnowledgeFolderId`.
+**Fail loud (no dead links):** in live mode, if a company is missing either id,
+`generate_job_description` returns a clear `VALIDATION_ERROR` ("recruitment Docs not configured
+for live mode …") — it **never** returns a simulated `docs.example` URL. Without
+`GOOGLE_CONNECTORS=live`, everything stays simulated (the default), which is correct for local
+dev and tests.
 
-Set **both** ids or **neither**. With both absent, Docs stays simulated even in live mode
-(you opted out). With exactly one set, `generate_job_description` fails with a clear
-`VALIDATION_ERROR` ("recruitment Docs config incomplete …") rather than producing a dead
-simulated URL. Without `GOOGLE_CONNECTORS=live`, everything stays simulated (the default).
+> This is the fix for the "dead Doc link in the chatbot" bug: the deployed server now uses the
+> same configured + authenticated path the smoke test uses, or it fails explicitly.
 
 ### Doc creation: who owns the file (two auth modes)
 
@@ -119,10 +137,27 @@ always uses the service account. OAuth mode activates only when all three `GOOGL
 vars are set; otherwise the service account is used.
 
 **OAuth one-time setup (personal Gmail):**
-1. GCP Console → enable **Google Drive API** + **Google Docs API**.
+1. GCP Console → enable **Google Drive API** + **Google Docs API** + **Gmail API**.
 2. Credentials → **Create OAuth client ID → Desktop app** → note client id + secret.
 3. OAuth consent screen → External → add your Google account as a **Test user**.
 4. `GOOGLE_OAUTH_CLIENT_ID=… GOOGLE_OAUTH_CLIENT_SECRET=… npm run oauth-token` → open the
-   printed URL, approve, copy the printed `GOOGLE_OAUTH_REFRESH_TOKEN` into `.env`.
+   printed URL, approve, copy the printed `GOOGLE_OAUTH_REFRESH_TOKEN` into `.env`. The consent
+   now includes the **`gmail.send`** scope, so the same token also sends the HR notification.
+
+### HR notification at approve (D1)
+
+When a manager approves a fiche, the MCP writes the `rec_jobDesc` row (with the live doc URL)
+**and emails HR** — best-effort, so a failed email never blocks the approval. Recipients are
+the `Users` rows with role `hr_admin`; if there are none, the `Config` key `hrNotifyEmail` is
+used. A **real** email requires the live Gmail connector: `GOOGLE_CONNECTORS=live` **and** the
+`GOOGLE_OAUTH_*` vars (refresh token consented with `gmail.send`). Without OAuth creds the
+Gmail connector stays simulated (returns a trace id; no mail leaves).
+
+**Refresh-token lifetime (operational note).** A refresh token issued by an app whose OAuth
+consent screen is in **Testing** mode **expires after 7 days** — live Doc creation then fails
+with `invalid_grant`. For a durable pilot, move the consent screen to **In production** (the
+token stops expiring), or re-run `npm run oauth-token` to mint a fresh one. Also: the token
+string starts with `1//` — if Doc creation suddenly returns `invalid_grant`, check that
+leading `1` was not dropped when copying it into `.env`.
 
 See [pilot-access.md](pilot-access.md) for how a pilot DRH connects.

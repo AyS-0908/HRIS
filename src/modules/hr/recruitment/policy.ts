@@ -2,10 +2,13 @@
 // ITS OWN tracking Sheet (key/value rows); the MCP reads, validates, caches and ENFORCES
 // it. The Skill only adapts its dialogue — enforcement lives here, in the module.
 //
-// Security guardrail: this tab governs the PROCESS only (which questions/proof docs are
-// required). Only the keys below are honored; any other key — including anything that
-// looks like identity/role/permission config — is ignored. Identity/roles/permissions
-// stay in the server config and are never editable from the Sheet.
+// Security guardrail: the `Config` tab governs the PROCESS only (which questions/proof docs
+// are required, plus the HR notify address). Only the keys below are honored; any other key
+// is ignored. Identity lives in a SEPARATE tab: the RH-editable `Users` tab (email | role)
+// maps a person to a role (D2, see core/auth/resolveActorRole.ts). The closed set of VALID
+// roles/permissions still comes from the server YAML and is never editable from the Sheet —
+// the Sheet only maps a known person to one of those roles. Policy and identity stay in their
+// own tabs.
 //
 // Anti-regression: a missing/empty/malformed Config tab ⇒ DEFAULT_POLICY (all off) ⇒ the
 // current behavior is unchanged. Simulated Sheets returns [] ⇒ default.
@@ -21,6 +24,13 @@ export const recruitmentPolicySchema = z.object({
   // If true, the Skill should walk an extra human validation step (no extra MCP tool in
   // V1; informational for the dialogue — see Phase 2).
   extraValidationStep: z.boolean().default(false),
+  // If true, generate_job_description requires the structured sections (mission,
+  // responsibilities, profile, context) — enforced in the handler (plan P1.2). Off ⇒ the
+  // legacy free-form draftBody is accepted (current behaviour).
+  requireStructuredSections: z.boolean().default(false),
+  // Fallback HR notification recipient used at approve (D1) when no `Users` row has role
+  // hr_admin. Optional string (an email). Absent/blank ⇒ no fallback (Users tab is primary).
+  hrNotifyEmail: z.string().email().optional(),
 });
 
 export type RecruitmentPolicy = z.infer<typeof recruitmentPolicySchema>;
@@ -29,6 +39,7 @@ export const DEFAULT_POLICY: RecruitmentPolicy = {
   requireJustification: false,
   requireProofDoc: false,
   extraValidationStep: false,
+  requireStructuredSections: false,
 };
 
 // Only these keys are read from the Config tab. Everything else is ignored (guardrail).
@@ -52,11 +63,17 @@ function parseBool(raw: string): boolean | undefined {
 
 // Maps Config rows ([key, value]) to a validated policy. Unknown keys are skipped.
 function policyFromRows(values: string[][], logger: ServiceDeps["logger"]): RecruitmentPolicy {
-  const raw: Record<string, boolean> = {};
+  const raw: Record<string, unknown> = {};
   for (const row of values) {
     const key = (row[0] ?? "").trim();
     if (!KNOWN_KEYS.has(key)) continue; // guardrail: ignore unknown/security keys
-    const b = parseBool(row[1] ?? "");
+    const rawVal = row[1] ?? "";
+    if (key === "hrNotifyEmail") {
+      const v = rawVal.trim();
+      if (v) raw[key] = v; // blank ⇒ leave unset (stays optional/absent)
+      continue;
+    }
+    const b = parseBool(rawVal);
     if (b !== undefined) raw[key] = b;
   }
   const parsed = recruitmentPolicySchema.safeParse(raw);

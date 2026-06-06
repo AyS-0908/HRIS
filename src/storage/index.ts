@@ -1,16 +1,22 @@
 // Storage factory (mirrors connectors/index.ts). Selects the StorageAdapter backend
 // at the composition root; the runtime only ever sees the StorageAdapter interface.
 // SPEC §4.2 / §15.11 — swappable without core edits.
-import type { Logger, StorageAdapter } from "../shared/types/contracts.js";
+import type {
+  AuditEvent,
+  Logger,
+  ProcessState,
+  StorageAdapter,
+} from "../shared/types/contracts.js";
 import { InMemoryStorageAdapter } from "./inMemoryAdapter.js";
 import { SheetsStorageAdapter } from "./sheetsStorageAdapter.js";
 
 export interface StorageOptions {
   backend: "memory" | "sheets";
   serviceAccountJson?: string;
-  // For the sheets backend: reuses the company's recruitment spreadsheet (its
-  // proc_state / proc_audit tabs). See SPEC §6 resources.googleSheets.
-  sheetId?: string;
+  // Per-company recruitment spreadsheets (sheets backend). Each tenant's process state +
+  // audit persist to ITS OWN sheet (true multi-tenant — P2.3). A company without a sheet id
+  // is rejected at use time with a clear error.
+  companies?: { companyId: string; sheetId?: string }[];
 }
 
 export function buildStorage(logger: Logger, options: StorageOptions): StorageAdapter {
@@ -20,12 +26,60 @@ export function buildStorage(logger: Logger, options: StorageOptions): StorageAd
         "STORAGE_BACKEND=sheets requires a service account (set GOOGLE_SERVICE_ACCOUNT_JSON_FILE or GOOGLE_SERVICE_ACCOUNT_JSON)",
       );
     }
-    if (!options.sheetId) {
+    const withSheet = (options.companies ?? []).filter((c) => c.sheetId);
+    if (withSheet.length === 0) {
       throw new Error(
         "STORAGE_BACKEND=sheets requires a spreadsheet id (set resources.googleSheets.hrRecruitmentSheetId in the company config)",
       );
     }
-    return new SheetsStorageAdapter(logger, options.serviceAccountJson, options.sheetId);
+    return new SheetsStorageRouter(logger, options.serviceAccountJson, withSheet);
   }
+  // In-memory backend: a single companyId-keyed store serves every tenant.
   return new InMemoryStorageAdapter();
+}
+
+// Routes each StorageAdapter call to the calling company's own Sheets adapter (P2.3). The
+// companyId is taken from the call (state.companyId / the companyId arg / event.companyId),
+// so no tenant ever reads or writes another tenant's spreadsheet.
+class SheetsStorageRouter implements StorageAdapter {
+  private readonly byCompany = new Map<string, SheetsStorageAdapter>();
+
+  constructor(
+    logger: Logger,
+    serviceAccountJson: string,
+    companies: { companyId: string; sheetId?: string }[],
+  ) {
+    for (const c of companies) {
+      if (c.sheetId) {
+        this.byCompany.set(c.companyId, new SheetsStorageAdapter(logger, serviceAccountJson, c.sheetId));
+      }
+    }
+  }
+
+  private pick(companyId: string): SheetsStorageAdapter {
+    const adapter = this.byCompany.get(companyId);
+    if (!adapter) {
+      throw new Error(
+        `no recruitment spreadsheet configured for company ${companyId} (set resources.googleSheets.hrRecruitmentSheetId)`,
+      );
+    }
+    return adapter;
+  }
+
+  createInstance(s: Omit<ProcessState, "updatedAt" | "auditLogId">): Promise<ProcessState> {
+    return this.pick(s.companyId).createInstance(s);
+  }
+  getInstance(companyId: string, processInstanceId: string): Promise<ProcessState | null> {
+    return this.pick(companyId).getInstance(companyId, processInstanceId);
+  }
+  updateStatus(
+    companyId: string,
+    processInstanceId: string,
+    patch: Parameters<StorageAdapter["updateStatus"]>[2],
+  ): Promise<ProcessState> {
+    return this.pick(companyId).updateStatus(companyId, processInstanceId, patch);
+  }
+  appendAudit(e: AuditEvent): Promise<void> {
+    return this.pick(e.companyId).appendAudit(e);
+  }
 }

@@ -12,14 +12,22 @@ export interface IdentityHeaders {
 
 // Requires a company-scoped identity. Used by business tools and company-scoped
 // core tools. apiKeyId must already be resolved (authentication precedes this).
+//
+// Identity from the Sheet (D2): `roleOverride` is the role resolved from the company's
+// `Users` tab. When present it is AUTHORITATIVE and the `x-actor-role` header is advisory;
+// when null/absent the header role is used (today's behavior). Either way the effective role
+// must still be one of the company's YAML roles — the YAML stays the set of VALID roles, the
+// Sheet only maps a person to one of them. Kept pure/sync: the async Sheet read happens at
+// the server boundary, before this is called.
 export function resolveContext(
   headers: IdentityHeaders,
   apiKeyId: string,
   companies: CompanyRegistry,
+  roleOverride?: string | null,
 ): RequestContext {
   const companyId = headers.companyId?.trim();
   const actorId = headers.actorId?.trim();
-  const actorRole = headers.actorRole?.trim();
+  const headerRole = headers.actorRole?.trim();
 
   if (!companyId || !companies.has(companyId)) {
     throw forbidden(`unknown company: ${companyId ?? "<missing>"}`);
@@ -28,8 +36,15 @@ export function resolveContext(
   if (!actorId) {
     throw forbidden("missing actor id");
   }
-  if (!actorRole || !company.company.roles.includes(actorRole)) {
-    throw forbidden(`role not allowed for company: ${actorRole ?? "<missing>"}`);
+  const roles = company.company.roles;
+  // The Sheet role is authoritative ONLY when it is a valid company role. A typo or stale
+  // token in the RH-edited Users tab (e.g. "Manager", "rh", "hr-admin") must NOT lock out a
+  // user who sent a valid x-actor-role header — fall back to the advisory header, mirroring
+  // the null/unreadable path. The YAML stays the closed set of VALID roles either way.
+  const sheetRole = roleOverride && roles.includes(roleOverride) ? roleOverride : undefined;
+  const effectiveRole = sheetRole ?? headerRole;
+  if (!effectiveRole || !roles.includes(effectiveRole)) {
+    throw forbidden(`role not allowed for company: ${effectiveRole ?? "<missing>"}`);
   }
-  return { companyId, actorId, actorRole, apiKeyId };
+  return { companyId, actorId, actorRole: effectiveRole, apiKeyId };
 }

@@ -1,6 +1,7 @@
 // Shared service-account auth for Google Sheets. Used by both the live Sheets
 // connector (module side effects) and the Sheets StorageAdapter (process state).
 // Single source of truth for credential parsing + JWT construction.
+import { readFileSync } from "node:fs";
 import { JWT, OAuth2Client } from "google-auth-library";
 
 const SCOPES = ["https://www.googleapis.com/auth/spreadsheets"];
@@ -10,10 +11,26 @@ const DOCS_DRIVE_SCOPES = [
   "https://www.googleapis.com/auth/documents",
   "https://www.googleapis.com/auth/drive",
 ];
+// Gmail connector (live): send mail AS the consenting user. This scope must be part of the
+// OAuth refresh token's original consent (see scripts/get-oauth-token.mjs). A service account
+// cannot send Gmail without domain-wide delegation, so live Gmail = OAuth user-delegation only.
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
 interface ServiceAccount {
   client_email: string;
   private_key: string;
+}
+
+// Single source of truth for reading the service-account JSON from the environment: prefer a
+// file path (GOOGLE_SERVICE_ACCOUNT_JSON_FILE) because the multi-line private_key cannot be
+// parsed inline by `node --env-file`; fall back to inline GOOGLE_SERVICE_ACCOUNT_JSON. Returns
+// undefined when neither is set (callers decide whether that is fatal). Used by app.ts and the
+// setup-company-sheet script.
+export function resolveServiceAccountJsonFromEnv(): string | undefined {
+  const file = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_FILE;
+  if (file && file.trim()) return readFileSync(file.trim(), "utf8");
+  const inline = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  return inline && inline.trim() ? inline : undefined;
 }
 
 function parseServiceAccount(serviceAccountJson: string): ServiceAccount {

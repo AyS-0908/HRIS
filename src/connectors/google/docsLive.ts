@@ -18,19 +18,13 @@ import { connectorError } from "../../core/errors/appError.js";
 const DRIVE_API = "https://www.googleapis.com/drive/v3/files";
 const DOCS_API = "https://docs.googleapis.com/v1/documents";
 
-export interface DocsLiveOptions {
-  // Per-company template Doc id (lives in the company's Drive).
-  templateId: string;
-  // Per-company shared folder id (the copy is created here and inherits its sharing).
-  folderId: string;
-}
-
 // `client` is either a service-account JWT or an OAuth user-delegation client (both are
-// OAuth2Client); the connector is agnostic. `authLabel` is for health reporting only.
+// OAuth2Client); the connector is agnostic. `authLabel` is for health reporting only. The
+// template + folder always arrive per call (input.templateId / input.folderId) from each
+// company's resources (P2.3 multi-tenant) — there is no connector-level fallback.
 export function createDocsConnectorLive(
   logger: Logger,
   client: OAuth2Client,
-  options: DocsLiveOptions,
   authLabel: string,
 ): DocsConnector {
   return {
@@ -45,30 +39,55 @@ export function createDocsConnectorLive(
     },
 
     async createDocument(input, idempotencyKey) {
-      // A per-call template override is allowed (input.templateId), else the company default.
-      const templateId = input.templateId ?? options.templateId;
+      // Per-call (P2.3 multi-tenant): each company passes its OWN template + folder via
+      // resources, so one live connector serves every tenant.
+      const templateId = input.templateId;
+      const folderId = input.folderId;
+      // Defensive: the service guard (plan P0.3) already requires both per company in live
+      // mode, so reaching here without them is a wiring bug — fail clearly, never silently.
+      if (!templateId || !folderId) {
+        logger.error("connector.docs.createDocument missing template/folder (live)", {
+          hasTemplate: !!templateId,
+          hasFolder: !!folderId,
+        });
+        throw connectorError("Docs template/folder not provided for live document creation");
+      }
       try {
         // 1. Copy the template into the shared folder → inherits its sharing.
-        const docId = await copyTemplate(client, templateId, options.folderId, input.title);
+        const docId = await copyTemplate(client, templateId, folderId, input.title);
 
         // 2. Inject content into placeholders. Best-effort: a template without placeholders
-        //    still yields a valid (titled) doc, so a missing token is not fatal.
+        //    still yields a valid (titled) doc, so a missing token is not fatal. Structured
+        //    section placeholders ({{MISSION}}…) are filled when supplied (plan P1.2).
         await replacePlaceholders(client, docId, {
           "{{TITLE}}": input.title,
-          "{{SUMMARY}}": input.title,
+          "{{SUMMARY}}": input.summary ?? input.title,
           "{{BODY}}": input.content,
+          ...Object.fromEntries(
+            Object.entries(input.sections ?? {}).map(([name, text]) => [`{{${name}}}`, text]),
+          ),
         });
 
         const url = `https://docs.google.com/document/d/${docId}/edit`;
         logger.info("connector.docs.createDocument (live)", {
           docId,
           templateId,
-          folderId: options.folderId,
+          folderId,
           idempotencyKey,
         });
         return { docId, url };
       } catch (e) {
-        logger.error("connector.docs.createDocument failed (live)", { err: String(e) });
+        const msg = String(e);
+        logger.error("connector.docs.createDocument failed (live)", { err: msg });
+        // P0.2: the most common live-Docs failure is a service account copying into a
+        // regular (non-shared) Drive folder — service accounts have no Drive storage quota.
+        // Surface an actionable hint server-side (clients still get the safe CONNECTOR_ERROR).
+        if (/storage quota|quotaExceeded/i.test(msg)) {
+          logger.error(
+            "Docs live hint: the service account has no Drive quota for this folder. " +
+              "Use a Shared Drive (Workspace) or enable OAuth user-delegation (GOOGLE_OAUTH_*).",
+          );
+        }
         throw connectorError("Google Docs request failed");
       }
     },

@@ -48,10 +48,10 @@ interface RequestContext {
 
 Rules:
 - Reject if API key invalid → `UNAUTHENTICATED`.
-- Reject if `companyId` unknown or `actorRole` not in that company's roles → `FORBIDDEN`.
+- Reject if `companyId` unknown or the effective `actorRole` not in that company's roles → `FORBIDDEN`.
 - `RequestContext` is threaded into every tool handler, service, and audit event. It is the only source of `actorId`/`companyId`; never infer them elsewhere.
 
-> [Assumed] Header-based identity. If you instead carry identity in a signed token, the resolved fields above are unchanged — only the extraction differs.
+> [Resolved 2026-06-05 — D2] Identity from the Sheet. The effective `actorRole` is resolved server-side from the company's RH-editable `Users` tab (`email | role`), keyed by `x-actor-id` (`core/auth/resolveActorRole.ts`). The `x-actor-role` header is **advisory** — used only as a fallback when the `Users` tab is absent/empty or the actor is unlisted (anti-regression). The company YAML remains the closed set of **valid** roles; the Sheet only maps a known person to one of them. `x-actor-id`/`x-company-id` extraction is unchanged.
 
 ---
 
@@ -62,21 +62,21 @@ mcp-custom-standard/
 ├─ src/
 │  ├─ server/            index.ts | mcpServer.ts | transport.ts
 │  ├─ core/
-│  │  ├─ auth/           apiKey.ts | context.ts
-│  │  ├─ config/         loadCompany.ts | loadModules.ts
+│  │  ├─ auth/           apiKey.ts | context.ts | resolveActorRole.ts  # Sheet-based role (D2)
+│  │  ├─ config/         loadCompany.ts | loadModules.ts | schema.ts
 │  │  ├─ logging/  errors/  permissions/  validation/
 │  ├─ runtime/           processRuntime.ts   # status gate + status update + audit emission
-│  ├─ registry/          moduleRegistry.ts | toolRegistry.ts | processRegistry.ts
-│  ├─ connectors/        google/{drive,docs,sheets,gmail,forms,calendar}.ts | http.ts | webhook.ts
+│  ├─ registry/          moduleRegistry.ts | toolRegistry.ts | processRegistry.ts | validateModule.ts
+│  ├─ connectors/        index.ts | google/{drive,docs,docsLive,sheets,sheetsLive,gmail,gmailLive,forms,calendar,auth}.ts | generic/{http,webhook}.ts
 │  ├─ storage/           inMemoryAdapter.ts | sheetsStorageAdapter.ts | index.ts  # InMemory (default) + Sheets reference impl (STORAGE_BACKEND=sheets); interface in shared/types/contracts.ts
 │  ├─ modules/
 │  │  ├─ _template/{process}/...
-│  │  ├─ hr/recruitment/
-│  │  └─ ops/<sample>/
+│  │  ├─ hr/recruitment/  # tools.ts | service.ts | schemas.ts | permissions.ts | policy.ts | index.ts
+│  │  └─ index.ts         # module manifest (drop-in registration)
 │  └─ shared/            types/ | utils/
-├─ config/               company.example.yaml | modules.example.yaml | permissions.example.yaml
+├─ config/               company.example.yaml | company.<id>.yaml (gitignored)
 ├─ tests/                unit/ | integration/ | contract/
-├─ scripts/              create-module.ts | check-standard.ts | report-maintenance.ts
+├─ scripts/              create-module.ts | create-company.ts | setup-company-sheet.ts | get-oauth-token.mjs | check-standard.ts | report-maintenance.ts
 ├─ Dockerfile | package.json | .env.example | README.md | STANDARD_CHANGELOG.md
 ```
 
@@ -250,7 +250,7 @@ Maintenance, logs, secrets, diagnostics are NOT MCP tools unless an explicit `ad
 google: drive, docs, sheets, gmail, forms, calendar
 generic: http, webhook
 ```
-Each implements `Connector`. Side-effect methods accept an `idempotencyKey` and return a traceable external id. Production-hardened Google auth is OUT of V1 scope; skeletons + one working path (Sheets, for the storage adapter) are required.
+Each implements `Connector`. Side-effect methods accept an `idempotencyKey` and return a traceable external id. Live paths implemented: **Sheets** (service account), **Docs** (service-account Shared Drive *or* OAuth user-delegation; `docsLive.ts`), **Gmail** (OAuth `gmail.send`; `gmailLive.ts`, used for the HR notification at approve). Drive/forms/calendar/http/webhook remain simulated skeletons (provider-neutral surfaces, ready to wire).
 
 ---
 
@@ -276,14 +276,18 @@ Normalized codes returned to client: `UNAUTHENTICATED | FORBIDDEN | VALIDATION_E
 
 HR recruitment process (tools are coarse business actions — note the corrected granularity vs. raw technical steps):
 ```
-processId: hr.recruitment
+processId: hr.recruitment   # v0.3.0 — 4 tools
 tools:
   submit_job_request        # creates instance → status: pending_manager_validation
-  generate_job_description  # AI draft + create doc; status unchanged (recommendation only)
-  approve_job_description    # role=manager; pending_manager_validation → approved (human checkpoint)
-  publish_job_opening        # appends sheet row + notifies; approved → published
-  update_candidate_status    # status transition with audit
+  generate_job_description  # AI draft + create doc (live Docs in live mode); status unchanged
+  approve_job_description    # role=manager; pending_manager_validation → approved (human checkpoint);
+                             #   appends the rec_jobDesc row AND notifies HR by email (D1, best-effort)
+  get_recruitment_policy     # read-only query (no process binding): the resolved per-company policy
 ```
+
+> [Resolved 2026-06-05 — D1] HR is notified by **email at APPROVE** (when the Sheet row is written with the doc URL), not at publish. Recipients = `Users` rows with role `hr_admin` (fallback: Config key `hrNotifyEmail`). Best-effort: a failed email never fails the approval.
+>
+> **Future modules (deferred — D4):** `publish_job_opening` (job-board diffusion / HR publishing front) and `update_candidate_status` (candidate sub-process) are NOT in this module; they belong to a separate future MCP module and were removed from the V1 sample.
 
 > Tool names like `write_row`, `send_http_request`, `create_file`, `call_google_api` are PROHIBITED at the MCP surface. Such steps live inside services.
 
@@ -311,9 +315,13 @@ Core and modules versioned independently (semver). Breaking core change requires
 ## 14. DEPLOYMENT
 
 ```env
-NODE_ENV= PORT= MCP_SERVER_PUBLIC_URL= AUTH_MODE= API_KEY= COMPANY_CONFIG_PATH= LOG_LEVEL=
-# optional
-GOOGLE_SERVICE_ACCOUNT_JSON= GOOGLE_CLIENT_ID= GOOGLE_CLIENT_SECRET= APPS_SCRIPT_WEBHOOK_URL=
+NODE_ENV= PORT= MCP_SERVER_PUBLIC_URL= API_KEY= COMPANY_CONFIG_PATH= LOG_LEVEL=
+# connector / storage mode
+GOOGLE_CONNECTORS=simulated|live   STORAGE_BACKEND=memory|sheets
+# live Google (service account — Sheets always, Docs via Shared Drive). Prefer the *_FILE path:
+GOOGLE_SERVICE_ACCOUNT_JSON_FILE=   GOOGLE_SERVICE_ACCOUNT_JSON=   # (inline fallback, single-line)
+# OAuth user-delegation — Docs-on-personal-Gmail + Gmail send (gmail.send scope, D1):
+GOOGLE_OAUTH_CLIENT_ID=  GOOGLE_OAUTH_CLIENT_SECRET=  GOOGLE_OAUTH_REFRESH_TOKEN=
 ```
 
 ---
