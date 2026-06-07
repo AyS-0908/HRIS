@@ -1,6 +1,6 @@
 # Progress.md — MCP Custom Standard
 
-Last updated: 2026-06-06 (session 2) · Branch: `feat/mcp-standard-v1`
+Last updated: 2026-06-07 · Branch: `feat/mcp-standard-v1`
 
 > Status board for a fresh agent. Authoritative acceptance = `SPEC.md` §15. History lives in
 > git + `STANDARD_CHANGELOG.md` — this file is **current state + next moves only**, kept short.
@@ -9,7 +9,9 @@ Last updated: 2026-06-06 (session 2) · Branch: `feat/mcp-standard-v1`
 
 V1 complete and live-verified; **architecture hardened (core 0.2.0): per-company API keys
 (tenant derived from the key, not a spoofable header) + a claude.ai-web bearer/per-actor path**,
-both proven locally over the full Fiche-de-Poste flow. All SPEC §15 acceptance items still pass.
+both proven locally over the full Fiche-de-Poste flow. **Storage concurrency hardened** for
+multi-user: the runtime serializes same-instance contenders via an in-process `LockProvider`
+(no Sheet schema change). All SPEC §15 acceptance items still pass.
 
 ## Done
 
@@ -38,6 +40,14 @@ both proven locally over the full Fiche-de-Poste flow. All SPEC §15 acceptance 
   cache; `x-actor-role` header advisory; YAML = set of valid roles.
 - **Storage:** `StorageAdapter` — in-memory default, or Google Sheets impl (`proc_state` /
   `proc_audit`) via `STORAGE_BACKEND=sheets`. Runtime untouched.
+- **Concurrency hardening (multi-user).** New `runtime/lockProvider.ts` (`LockProvider` +
+  in-process `InProcessLockProvider`, a keyed async-mutex). The runtime serializes the
+  gate→handler→updateStatus window per `(companyId, processInstanceId)`, so two concurrent
+  requests on the same instance can no longer both pass the status gate and run the side
+  effect twice (e.g. double approval). Creators skip the lock (fresh id, no contender); the
+  lock is a no-op unless two requests hit the same instance. No Sheet schema change. +8 tests
+  (6 lock + 2 runtime concurrency). Scope = one server process; a distributed `LockProvider`
+  is the documented multi-replica upgrade (swap at the composition root, no runtime change).
 - **Reusability:** `_template` + `create-module`; `create-company` + `setup-company-sheet` +
   `get-oauth-token` onboarding scripts.
 - **Deploy:** Dockerfile + Coolify (app **HRIS**, project Hosted Apps). Sheets storage active in prod.
@@ -52,13 +62,19 @@ both proven locally over the full Fiche-de-Poste flow. All SPEC §15 acceptance 
   `memory/lessons.md` were migrated into `STANDARD_CHANGELOG.md`; README no longer links to the
   obsolete memory folder, and the two old files were removed so `Progress.md` is the single
   project memory again.
-- **Gate green:** `npm test` → **52 passed / 11 files**; `npm run typecheck` clean;
+- **Module micro-spec template.** Added `docs/module-micro-spec-template.md`: a non-developer
+  input template for new business modules where the operator describes `Who / step / business
+  action / Sheet columns`, and the AI-coder translates that into coarse tools, statuses,
+  permissions, schemas and verification. Linked it from `docs/developer-guide.md`.
+- **Gate green:** `npm test` → **60 passed / 13 files**; `npm run typecheck` clean;
   `npm run check-standard` OK (4 tools); `npm run build` OK.
 
 ## Now
 
-- Nothing in flight. Repo is at a clean checkpoint on `feat/mcp-standard-v1` (uncommitted
-  working-tree changes from this session — commit when ready). Track A#1, A#2 and the two guides are done.
+- Storage concurrency hardening just landed (in-process `LockProvider`, runtime serialization,
+  +8 tests). Gate green. Uncommitted working-tree changes — commit when ready.
+- Otherwise nothing in flight; clean checkpoint on `feat/mcp-standard-v1`. Tracks A#1, A#2 and
+  the two guides are done.
 
 ## Next — remaining backlog
 
@@ -68,11 +84,17 @@ both proven locally over the full Fiche-de-Poste flow. All SPEC §15 acceptance 
 
 **A#3:** Module-creation wizard
 
-- A Q&A/declarative wizard that emits a runnable module skeleton from a few answers
-  (domain/process/tools/statuses) — agreed format: declarative answers-file/flags **+ interactive
-  prompt fallback**. The deterministic **manual SOP already exists** (developer-guide.md §4:
-  `create-module` → author contract → register in `modules/index.ts` → enable in a company YAML →
-  `check-standard`/tests green). The wizard is an ergonomics layer on top.
+- A Q&A/declarative wizard that emits a runnable module skeleton from a business-process
+  description, not from developer-level tool choices. The operator can provide rows such as
+  `Who / step / business action / Sheet columns` (example: RH selects publication channels, AI
+  drafts messages per selected channel). The AI-coder/wizard must infer coarse MCP tools,
+  statuses, permissions and schemas, then ask for confirmation before generating files. Agreed
+  format: declarative answers-file/flags **+ interactive prompt fallback**. The deterministic
+  **manual SOP already exists** (developer-guide.md §4: `create-module` → author contract →
+  register in `modules/index.ts` → enable in a company YAML → `check-standard`/tests green). The
+  wizard is an ergonomics layer on top.
+- First artifact exists: `docs/module-micro-spec-template.md`. Next implementation step is to make
+  the wizard consume that micro-spec and generate the module skeleton.
 
 ## Operator action before prod live email works
 
@@ -91,12 +113,29 @@ both proven locally over the full Fiche-de-Poste flow. All SPEC §15 acceptance 
 - **Testing-mode OAuth refresh token expires after 7 days** (`invalid_grant`). Move the consent
   screen to *In production* for a durable pilot, or re-run `npm run oauth-token`. The token
   starts with `1//` — a dropped leading `1` also causes `invalid_grant`.
-- Sheets `StorageAdapter` does a full-tab scan on read and a non-atomic read-modify-write on
-  `updateStatus` (documented in `storage/sheetsStorageAdapter.ts`). Fine for the V1 reference
-  impl; process-level dedup stays the runtime's idempotency store.
+- ~~Sheets `StorageAdapter` non-atomic read-modify-write / same-instance race~~ — **resolved
+  for a single server process** via the runtime `LockProvider` (serializes same-instance
+  contenders). **Residual:** running multiple replicas reopens the cross-process race — the
+  trigger to add a distributed `LockProvider`. The full-tab scan remains (kept simple on
+  purpose; a row cache was rejected as drift-prone). Process-level dedup stays the idempotency store.
+  - **In plain terms (non-technical):** the system is safe to run as **one running copy** of the
+    server — which is how it runs today on Coolify. Two people acting on the *same* job request at
+    the same moment can no longer both push it through (no double approval / double email). The
+    one caveat: if we later run **several copies of the server at once** to handle more load, that
+    protection would not span the copies until we add a shared lock. For the pilot (a few users,
+    one copy), nothing to do now.
 
 ## Last verification
 
+- **2026-06-07 — storage concurrency hardening.** Added `runtime/lockProvider.ts` and runtime
+  serialization of same-instance contenders (gate→handler→updateStatus per company+instance).
+  New `tests/unit/lockProvider.test.ts` (FIFO/cross-key/error-isolation/drain) and
+  `tests/integration/runtimeConcurrency.test.ts` (two concurrent approvals on one instance ⇒
+  exactly one success + one `INVALID_STATE`; different instances run concurrently). Gate green:
+  `npm run typecheck`, `npm test` (60 tests / 13 files), `npm run check-standard`, `npm run build`.
+- **2026-06-07 — module micro-spec template.** Created `docs/module-micro-spec-template.md`
+  for non-developer business-process input and linked it from `docs/developer-guide.md`.
+  Verified the doc is present and `npm run check-standard` remains green.
 - **2026-06-06 — codebase audit.** Architecture/readability/file-hygiene audit completed.
   Verification stayed green: `npm run typecheck`, `npm test` (52 tests / 11 files),
   `npm run check-standard`, `npm run report-maintenance`, and `npm run build`. Follow-up

@@ -8,9 +8,13 @@
 // Tabs are manual setup (documented columns), like the rec_jobDesc tab. This adapter
 // assumes proc_state / proc_audit exist with a header row in row 1.
 //
-// Known V1 limitations (acceptable for a reference impl): getInstance/updateStatus do a
-// full-tab scan, and updateStatus is a non-atomic read-modify-write. Process-level dedup
-// is handled by the runtime's idempotency store, not here.
+// Concurrency: getInstance/updateStatus do a full-tab scan, and updateStatus is a
+// read-modify-write. Same-instance contenders are serialized upstream by the runtime's
+// per-(company,instance) LockProvider (runtime/lockProvider.ts), so the RMW is atomic
+// within one server process; a distributed LockProvider is the documented multi-replica
+// upgrade. The scan is kept deliberately simple — a row-number cache was rejected as
+// drift-prone under manual sheet edits. Process-level dedup stays the runtime's
+// idempotency store, not here.
 import { randomUUID } from "node:crypto";
 import type { JWT } from "google-auth-library";
 import type { AuditEvent, Logger, ProcessState, StorageAdapter } from "../shared/types/contracts.js";

@@ -15,6 +15,7 @@ import type {
 import type { ResolvedTool } from "../registry/toolRegistry.js";
 import type { CompanyRegistry } from "../core/config/loadCompany.js";
 import type { IdempotencyStore } from "./idempotencyStore.js";
+import type { LockProvider } from "./lockProvider.js";
 import { assertPermission } from "../core/permissions/check.js";
 import { redactForAudit } from "../core/validation/redact.js";
 import {
@@ -31,6 +32,9 @@ export interface RuntimeDeps {
   connectors: Connectors;
   logger: Logger;
   idempotency: IdempotencyStore;
+  // Serializes concurrent requests on the same (companyId, processInstanceId) so two
+  // contenders cannot both pass the status gate and run the side effect twice (in-process).
+  lock: LockProvider;
   companies: CompanyRegistry;
   // Connector mode, threaded to services via ServiceDeps. Defaults to "simulated".
   googleMode?: "simulated" | "live";
@@ -99,124 +103,139 @@ export class ProcessRuntime {
       // two instances reusing the same key would collide (B gets A's prior result).
       const idemScope = `${ctx.companyId}:${tool.name}:${meta.processInstanceId ?? ""}:${idemKey}`;
 
-      // 4. load/create instance + status gate
-      if (isCreator) {
-        instance = await this.deps.storage.createInstance({
-          processInstanceId: randomUUID(),
-          processId: pb.processId,
-          companyId: ctx.companyId,
-          currentStatus: pb.statusAfterSuccess,
-          currentStep: tool.name,
-          createdBy: ctx.actorId,
-          createdAt: new Date().toISOString(),
-          lastToolCalled: tool.name,
-          externalReferences: {},
-        });
-        statusAfter = instance.currentStatus;
-      } else {
-        if (!meta.processInstanceId) {
-          throw validationError(`processInstanceId required for ${tool.name}`);
+      // Steps 4–7 (gate → handler → updateStatus) run under a per-(company,instance) lock so
+      // two concurrent requests on the same instance cannot both pass the gate and run the
+      // side effect twice. Creators mint a fresh id (no contender) and skip the lock; a
+      // non-creator missing its id falls through to runGated() and the validation error below.
+      const runGated = async (): Promise<ToolResult> => {
+        // 4. load/create instance + status gate
+        if (isCreator) {
+          instance = await this.deps.storage.createInstance({
+            processInstanceId: randomUUID(),
+            processId: pb.processId,
+            companyId: ctx.companyId,
+            currentStatus: pb.statusAfterSuccess,
+            currentStep: tool.name,
+            createdBy: ctx.actorId,
+            createdAt: new Date().toISOString(),
+            lastToolCalled: tool.name,
+            externalReferences: {},
+          });
+          statusAfter = instance.currentStatus;
+        } else {
+          if (!meta.processInstanceId) {
+            throw validationError(`processInstanceId required for ${tool.name}`);
+          }
+          instance = await this.deps.storage.getInstance(ctx.companyId, meta.processInstanceId);
+          if (!instance) {
+            throw invalidState(`process instance not found: ${meta.processInstanceId}`);
+          }
+          statusBefore = instance.currentStatus;
+          if (!pb.allowedStatusesBefore.includes(instance.currentStatus)) {
+            throw invalidState(
+              `status ${instance.currentStatus} not in [${pb.allowedStatusesBefore.join(", ")}]`,
+            );
+          }
+          statusAfter = statusBefore;
         }
-        instance = await this.deps.storage.getInstance(ctx.companyId, meta.processInstanceId);
-        if (!instance) {
-          throw invalidState(`process instance not found: ${meta.processInstanceId}`);
-        }
-        statusBefore = instance.currentStatus;
-        if (!pb.allowedStatusesBefore.includes(instance.currentStatus)) {
-          throw invalidState(
-            `status ${instance.currentStatus} not in [${pb.allowedStatusesBefore.join(", ")}]`,
-          );
-        }
-        statusAfter = statusBefore;
-      }
 
-      // 5. idempotency short-circuit
-      if (pb.idempotent) {
-        if (!idemKey) {
-          throw validationError(`idempotencyKey required for idempotent tool ${tool.name}`);
+        // 5. idempotency short-circuit
+        if (pb.idempotent) {
+          if (!idemKey) {
+            throw validationError(`idempotencyKey required for idempotent tool ${tool.name}`);
+          }
+          const prior = this.deps.idempotency.get(idemScope);
+          if (prior) {
+            this.deps.logger.info("idempotent short-circuit", { tool: tool.name });
+            shortCircuited = true;
+            result = prior;
+            errorCode = null;
+            return prior;
+          }
         }
-        const prior = this.deps.idempotency.get(idemScope);
-        if (prior) {
-          this.deps.logger.info("idempotent short-circuit", { tool: tool.name });
-          shortCircuited = true;
-          result = prior;
-          errorCode = null;
-          return prior;
-        }
-      }
 
-      // 6. run handler (side effects happen here, via services → connectors)
-      const sdeps: ServiceDeps = {
-        storage: this.deps.storage,
-        connectors: this.deps.connectors,
-        services: module.serviceBindings,
-        logger: this.deps.logger,
-        recordExternal,
-        idempotencyKey: idemKey,
-        ctx,
-        process: instance,
-        resources: this.deps.companies.get(ctx.companyId)?.resources ?? {},
-        googleMode: this.deps.googleMode ?? "simulated",
+        // 6. run handler (side effects happen here, via services → connectors)
+        const sdeps: ServiceDeps = {
+          storage: this.deps.storage,
+          connectors: this.deps.connectors,
+          services: module.serviceBindings,
+          logger: this.deps.logger,
+          recordExternal,
+          idempotencyKey: idemKey,
+          ctx,
+          process: instance,
+          resources: this.deps.companies.get(ctx.companyId)?.resources ?? {},
+          googleMode: this.deps.googleMode ?? "simulated",
+        };
+        const handlerResult = await tool.handler(ctx, input, sdeps);
+
+        // 7. on success, update status (creator already created at target status). Merge any
+        // external ids recorded by the handler into the persisted externalReferences so later
+        // steps in the same process can read them (e.g. the real docUrl at approve time).
+        if (handlerResult.status === "success" && !isCreator) {
+          const hasOutputs = Object.keys(externalOutputs).length > 0;
+          instance = await this.deps.storage.updateStatus(ctx.companyId, instance.processInstanceId, {
+            currentStatus: pb.statusAfterSuccess,
+            currentStep: tool.name,
+            lastToolCalled: tool.name,
+            ...(hasOutputs
+              ? { externalReferences: { ...instance.externalReferences, ...externalOutputs } }
+              : {}),
+          });
+          statusAfter = instance.currentStatus;
+        }
+        if (handlerResult.status === "error") {
+          errorCode = (handlerResult.data.errorCode as string | undefined) ?? "INTERNAL";
+          statusAfter = statusBefore || statusAfter;
+        }
+
+        const traceIds = handlerResult.traceIds.length
+          ? handlerResult.traceIds
+          : Object.values(externalOutputs);
+        result = {
+          status: handlerResult.status,
+          data: {
+            ...handlerResult.data,
+            processInstanceId: instance.processInstanceId,
+            status: statusAfter,
+          },
+          traceIds,
+        };
+
+        if (pb.idempotent && idemKey && result.status === "success") {
+          this.deps.idempotency.set(idemScope, result);
+        }
+        return result;
       };
-      const handlerResult = await tool.handler(ctx, input, sdeps);
 
-      // 7. on success, update status (creator already created at target status). Merge any
-      // external ids recorded by the handler into the persisted externalReferences so later
-      // steps in the same process can read them (e.g. the real docUrl at approve time).
-      if (handlerResult.status === "success" && !isCreator) {
-        const hasOutputs = Object.keys(externalOutputs).length > 0;
-        instance = await this.deps.storage.updateStatus(ctx.companyId, instance.processInstanceId, {
-          currentStatus: pb.statusAfterSuccess,
-          currentStep: tool.name,
-          lastToolCalled: tool.name,
-          ...(hasOutputs
-            ? { externalReferences: { ...instance.externalReferences, ...externalOutputs } }
-            : {}),
-        });
-        statusAfter = instance.currentStatus;
-      }
-      if (handlerResult.status === "error") {
-        errorCode = (handlerResult.data.errorCode as string | undefined) ?? "INTERNAL";
-        statusAfter = statusBefore || statusAfter;
-      }
-
-      const traceIds = handlerResult.traceIds.length
-        ? handlerResult.traceIds
-        : Object.values(externalOutputs);
-      result = {
-        status: handlerResult.status,
-        data: {
-          ...handlerResult.data,
-          processInstanceId: instance.processInstanceId,
-          status: statusAfter,
-        },
-        traceIds,
-      };
-
-      if (pb.idempotent && idemKey && result.status === "success") {
-        this.deps.idempotency.set(idemScope, result);
-      }
-      return result;
+      return !isCreator && meta.processInstanceId
+        ? await this.deps.lock.withLock(`${ctx.companyId}:${meta.processInstanceId}`, runGated)
+        : await runGated();
     } catch (err) {
       thrown = err;
       errorCode = toClientError(err).code;
+      // `instance` is mutated inside runGated (a closure), so TS narrows it back to `null`
+      // here even though at runtime the closure may have set it. Re-assert the declared type.
+      const inst = instance as ProcessState | null;
       // Reflect the instance's actual persisted status. For a non-creator this equals
       // statusBefore (updateStatus only runs on success). For a creator the instance was
       // already created at statusAfterSuccess before the handler ran, so the audit must
       // show that — not "" — to stay consistent with storage.
-      statusAfter = instance?.currentStatus ?? statusBefore;
+      statusAfter = inst?.currentStatus ?? statusBefore;
       result = { status: "error", data: { errorCode }, traceIds: [] };
       throw err instanceof AppError ? err : internalError(String(err));
     } finally {
       // 8. emit AuditEvent (always; even on error) per resolved level.
       // A pure idempotent short-circuit performs no new action → no new audit.
       if (effectiveLevel !== "none" && !shortCircuited) {
+        // See the catch block: runGated mutates `instance` via closure, so re-assert here.
+        const inst = instance as ProcessState | null;
         const event: AuditEvent = {
-          auditLogId: instance?.auditLogId ?? randomUUID(),
+          auditLogId: inst?.auditLogId ?? randomUUID(),
           timestamp: new Date().toISOString(),
           companyId: ctx.companyId,
           processId: pb.processId,
-          processInstanceId: instance?.processInstanceId ?? "",
+          processInstanceId: inst?.processInstanceId ?? "",
           toolName: tool.name,
           actorRole: ctx.actorRole,
           actorId: ctx.actorId,

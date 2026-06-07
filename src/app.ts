@@ -12,6 +12,7 @@ import { ProcessRegistry } from "./registry/processRegistry.js";
 import { buildConnectors } from "./connectors/index.js";
 import { buildStorage } from "./storage/index.js";
 import { InMemoryIdempotencyStore } from "./runtime/idempotencyStore.js";
+import { InProcessLockProvider } from "./runtime/lockProvider.js";
 import { ProcessRuntime } from "./runtime/processRuntime.js";
 import { validateModule } from "./registry/validateModule.js";
 import { ALL_MODULES } from "./modules/index.js";
@@ -98,6 +99,7 @@ export function buildApp(config: AppConfig): App {
     connectors,
     logger,
     idempotency,
+    lock: new InProcessLockProvider(),
     companies,
     googleMode: config.googleConnectors,
   });
