@@ -73,6 +73,10 @@ Workspace prep, sharing, OAuth modes): [onboarding-company.md](onboarding-compan
 Adding a module (e.g. *publish a job desc*, *prepare an interview*) is a **fixed, mechanical**
 sequence that never touches `core/`, `runtime/` or `server/`:
 
+If the operator starts from a business process rather than a technical tool list, first fill
+[module-micro-spec-template.md](module-micro-spec-template.md). The AI-coder must translate the
+business steps into coarse tools, statuses, permissions and schemas before scaffolding.
+
 1. **Scaffold** from `_template`:
    ```bash
    npm run create-module -- --domain hr --module interview
