@@ -9,6 +9,8 @@ company:
     - hr_admin
     - manager
     - employee
+    # Operator/admin beta tester with full HR-recruitment tool access (one email = one role).
+    - admin_user
 # Per-company API key. This is the sha256 of the throwaway DEV key `dev-acme-key` — use it for
 # local runs only (x-api-key: dev-acme-key). A real company gets a random key from
 # `npm run create-company` (it prints the key once and stores only this hash). The raw key is

@@ -9,6 +9,7 @@ company:
     - hr_admin
     - manager
     - employee
+    - admin_user
 resources:
   googleDrive:
     hrKnowledgeFolderId: ""

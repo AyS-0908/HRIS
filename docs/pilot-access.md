@@ -80,7 +80,7 @@ recruter…"* and the [hr-recruitment Skill](../skills/hr-recruitment/SKILL.md) 
 - A full `submit → generate → approve` yields an `approved` fiche whose row in `rec_jobDesc`
   holds the **live** doc URL, openable by both a manager and an HR member of the shared
   Drive folder. At approve, HR is **notified by email** (D1) — recipients are the `Users` rows
-  with role `hr_admin` (fallback: Config key `hrNotifyEmail`). Publishing/diffusion is a
+  with role `hr_admin` or `admin_user` (fallback: Config key `hrNotifyEmail`). Publishing/diffusion is a
   separate future module.
 
 ## 5. claude.ai web custom connector (no install)

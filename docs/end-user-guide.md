@@ -62,7 +62,12 @@ et il y a des choses à **ne pas toucher**.
 - **Onglet `Users`** — une ligne par personne : **`email | rôle`**.
   Exemple : `marie.dupont@acme.com | manager`, `drh@acme.com | hr_admin`.
   Pour changer le rôle de quelqu'un, modifiez sa ligne ; l'effet est pris en compte en ~1 minute.
-  Gardez **au moins un `hr_admin`** : c'est lui qui reçoit l'e-mail d'approbation.
+  Gardez **au moins un `hr_admin`** : il reçoit l'e-mail d'approbation (un `admin_user`, le rôle de
+  test, le reçoit aussi).
+  Rôles possibles : `manager`, `hr_admin`, `employee`, et `admin_user` (testeur/admin avec accès
+  complet aux outils). **Une seule ligne par e-mail** (un e-mail = un rôle) : pour un testeur qui a
+  besoin d'un accès large, utilisez `admin_user` plutôt que de dupliquer l'e-mail. L'accès aux
+  Google Drive/Sheets reste **géré séparément** (partage Google / groupe Google), pas par ce rôle.
 - **Onglet `Config`** — uniquement les **valeurs** des réglages connus (pas les noms) :
 
   | Réglage | Effet quand `true` |

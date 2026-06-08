@@ -15,6 +15,18 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
 
 ## Done
 
+- **`admin_user` beta role (full HR-recruitment access).** Added an operator/admin role with
+  access to all 4 recruitment tools (`submit`/`generate`/`approve`/`policy`), so a beta tester who
+  needs broad chatbot access gets one role — **no duplicate emails** in the `Users` tab (one email =
+  one role). `permissionScope` is now the **single source** of role authorization: removed the
+  per-tool `requiredRole: "manager"` from `submit_job_request` + `approve_job_description` (runtime
+  still enforces permission; human-validation invariant intact — the AI `generate` tool never
+  transitions). Added `admin_user` to `company.acme.yaml` + `company.example.yaml` + both Docs-guard
+  fixtures (loader requires every module role to be declared). The approve notification (D1) now
+  also goes to `admin_user` rows (`NOTIFY_ROLES` in service.ts), so a beta tester verifies the full
+  flow including the email. Google Drive/Sheets access stays separate (Google sharing / group).
+  +6 tests (admin_user end-to-end, receives approve email, role matrix: manager/hr_admin preserved,
+  employee FORBIDDEN). Gate green: typecheck, 81 tests / 15 files, check-standard.
 - **Per-company authentication (core 0.2.0 — A1).** Single shared `API_KEY` removed. Each company
   config carries `auth.apiKeyHash` (sha256). `resolveApiKeyIdentity` maps key→`{companyId,
   apiKeyId}`; the key authenticates *and* binds the tenant, so `x-company-id` can no longer
@@ -75,14 +87,15 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
   input template for new business modules where the operator describes `Who / step / business
   action / Sheet columns`, and the AI-coder translates that into coarse tools, statuses,
   permissions, schemas and verification. Linked it from `docs/developer-guide.md`.
-- **Gate green:** `npm test` → **75 passed / 14 files**; `npm run typecheck` clean;
+- **Gate green:** `npm test` → **81 passed / 15 files**; `npm run typecheck` clean;
   `npm run check-standard` OK (4 tools); `npm run build` OK.
 
 ## Now
 
-- Beta-tester `Users`-tab tokens just landed (3-source auth order, 60 s cache, `--store
-  users-sheet [--revoke]`, +12 tests). Gate green. Clean checkpoint on `main`.
-- Otherwise nothing in flight. Tracks A#1, A#2, the two guides, and the beta-token path are done.
+- `admin_user` beta role just landed (full HR-recruitment access, permissionScope as the single
+  authorization source, +5 tests). Gate green. Clean checkpoint on `main`.
+- Otherwise nothing in flight. Tracks A#1, A#2, the two guides, the beta-token path, and the
+  `admin_user` role are done.
 
 ## Next — remaining backlog
 
@@ -135,6 +148,15 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
 
 ## Last verification
 
+- **2026-06-08 — `admin_user` beta role.** Added the role to `company.acme.yaml`,
+  `company.example.yaml`, and both `tests/fixtures/company.docs-*.yaml` (loader requires every
+  module-referenced role to be declared). Updated `recruitmentPermissions` (submit/approve add
+  `admin_user`; generate/policy add it alongside `hr_admin`) and removed `requiredRole: "manager"`
+  from `submit_job_request` + `approve_job_description` so `permissionScope` is the single
+  authorization source. The approve email (D1) also notifies `admin_user` rows (`NOTIFY_ROLES`).
+  New `tests/integration/adminUserRole.test.ts` (admin_user end-to-end, receives approve email, role
+  matrix). Docs: module README, SPEC §11, developer-guide §2/§7, end-user-guide, onboarding,
+  pilot-access. Gate green: `npm run typecheck`, `npm test` (81 tests / 15 files), `npm run check-standard`.
 - **2026-06-08 — beta-tester `Users`-tab tokens (D2, no restart).** Added the 5-column `Users`
   schema (`mcpKeyHash | mcpKeyStatus | mcpKeyCreatedAt`), the 3-source auth order (config
   `actorKeys` → active `Users.mcpKeyHash` → config `apiKeyHash`) via `resolveApiKeyIdentityAsync`

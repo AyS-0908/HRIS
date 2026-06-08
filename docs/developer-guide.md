@@ -50,6 +50,15 @@ The effective role is resolved from the RH-editable `Users` tab (D2); the header
 fallback. Auth sources are tried in order: config `actorKeys` → `Users.mcpKeyHash` (active) →
 config `apiKeyHash`. Full connection steps: [pilot-access.md](pilot-access.md).
 
+**Roles & authorization.** Role authorization is governed by each tool's `permissionScope` alone
+(the single source — no per-tool `requiredRole`); roles are enforced in the runtime, never in a
+handler. `hr.recruitment` roles: `manager` (submit/generate/approve), `hr_admin` (generate/policy),
+and `admin_user` — an operator/admin **beta** role with full tool access. One email = one role in
+the `Users` tab (no duplicate emails); give a broad-access beta tester `admin_user` instead. Every
+role a module references must be declared in the company YAML `roles` (loader fails fast otherwise).
+**MCP role access is separate from Google Drive/Sheets access**, which stays managed by Google
+sharing / a Google Group — `admin_user` grants tool access only.
+
 **Beta testers (no Coolify, no restart).** A claude.ai-web token can live in the `Users` tab
 instead of a config file, so an operator adds/revokes a tester with one command and the change
 takes effect within the server's 60 s Users-tab cache:
@@ -158,8 +167,10 @@ App **HRIS** (project Hosted Apps). Dockerfile builds and runs `dist/server/inde
 The Sheet is shared between the operator (code) and RH. The contract:
 
 **RH MAY edit (no redeploy):**
-- The **`Users`** tab — one row per person, `email | role` (D2). Re-assigning a role takes effect
-  within ~60 s. At least one `hr_admin` row also receives the approve notification (D1).
+- The **`Users`** tab — one row per person, `email | role` (D2), **one row per email** (one email =
+  one role). Roles: `manager`, `hr_admin`, `employee`, `admin_user` (operator/admin beta, full tool
+  access). Re-assigning a role takes effect within ~60 s. The approve notification (D1) goes to
+  every `hr_admin` and `admin_user` row (the beta role also receives it to verify the full flow).
 - The **`Config`** tab **values** — only the known policy keys: `requireJustification`,
   `requireProofDoc`, `extraValidationStep`, `requireStructuredSections`, `hrNotifyEmail`.
 

@@ -35,7 +35,7 @@ The company then provides:
 | Drive **folder** id | `resources.googleDrive.hrKnowledgeFolderId` |
 | Doc **template** id | `resources.googleDocs.jobDescriptionTemplateId` |
 | Sheet id | `resources.googleSheets.hrRecruitmentSheetId` |
-| user list (`email` + role per person) | entered in the **`Users` tab** of the Sheet (RH-editable, D2) — see [pilot-access.md](pilot-access.md). At least one `hr_admin` row doubles as the email recipient for the approve notification (D1). |
+| user list (`email` + role per person) | entered in the **`Users` tab** of the Sheet (RH-editable, D2) — see [pilot-access.md](pilot-access.md). `hr_admin` and `admin_user` rows are the email recipients for the approve notification (D1). |
 
 The operator issues a **per-company API key** (see step 2 — `create-company` mints it).
 
@@ -156,8 +156,8 @@ vars are set; otherwise the service account is used.
 
 When a manager approves a fiche, the MCP writes the `rec_jobDesc` row (with the live doc URL)
 **and emails HR** — best-effort, so a failed email never blocks the approval. Recipients are
-the `Users` rows with role `hr_admin`; if there are none, the `Config` key `hrNotifyEmail` is
-used. A **real** email requires the live Gmail connector: `GOOGLE_CONNECTORS=live` **and** the
+the `Users` rows with role `hr_admin` or `admin_user` (the beta test role also receives it); if
+there are none, the `Config` key `hrNotifyEmail` is used. A **real** email requires the live Gmail connector: `GOOGLE_CONNECTORS=live` **and** the
 `GOOGLE_OAUTH_*` vars (refresh token consented with `gmail.send`). Without OAuth creds the
 Gmail connector stays simulated (returns a trace id; no mail leaves).
 

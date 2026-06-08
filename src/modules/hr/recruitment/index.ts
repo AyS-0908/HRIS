@@ -20,7 +20,7 @@ const processDefinition: ProcessDefinition = {
     "approve_job_description",
   ],
   statuses: [STATUS.pendingValidation, STATUS.approved],
-  roles: ["manager", "hr_admin"],
+  roles: ["manager", "hr_admin", "admin_user"],
   auditRequired: true,
 };
 

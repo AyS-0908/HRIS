@@ -31,7 +31,7 @@ const submitJobRequest: ToolDefinition = {
     processId: PROCESS_ID,
     allowedStatusesBefore: [], // creator: no prior instance
     statusAfterSuccess: STATUS.pendingValidation,
-    requiredRole: "manager",
+    // no requiredRole: permissionScope (manager, admin_user) is the single source of authorization
     sideEffects: [],
     auditLevel: "standard",
     idempotent: false,
@@ -57,7 +57,7 @@ const generateJobDescription: ToolDefinition = {
     processId: PROCESS_ID,
     allowedStatusesBefore: [STATUS.pendingValidation],
     statusAfterSuccess: STATUS.pendingValidation, // unchanged: AI does not transition
-    // no requiredRole: manager or hr_admin, governed by permissionScope alone
+    // no requiredRole: governed by permissionScope alone (manager, hr_admin, admin_user)
     sideEffects: ["create_document"],
     auditLevel: "standard",
     idempotent: true,
@@ -90,7 +90,8 @@ const approveJobDescription: ToolDefinition = {
     processId: PROCESS_ID,
     allowedStatusesBefore: [STATUS.pendingValidation],
     statusAfterSuccess: STATUS.approved,
-    requiredRole: "manager", // human validation: only the manager transitions it
+    // Human validation checkpoint: a role-gated human (not the AI generate tool) performs this
+    // transition. permissionScope (manager, admin_user) is the single source of who may approve.
     sideEffects: ["update_sheet", "send_email"], // D1: notify HR when the row is written
     auditLevel: "strict",
     idempotent: true,

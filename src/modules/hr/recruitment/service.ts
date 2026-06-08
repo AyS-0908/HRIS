@@ -10,9 +10,10 @@ import {
 import { resolveRecruitmentPolicy } from "./policy.js";
 
 export const REC_JOBDESC_TAB = "rec_jobDesc";
-// RH-editable identity tab (D2). Rows with role hr_admin are the HR notification recipients
-// at approve (D1). Only the email|role columns are needed here; the server's auth path reads the
-// wider A1:E range (it also resolves the mcpKey* beta-token columns), but this read stays A1:B.
+// RH-editable identity tab (D2). Rows with role hr_admin or admin_user are the HR notification
+// recipients at approve (D1, see NOTIFY_ROLES). Only the email|role columns are needed here; the
+// server's auth path reads the wider A1:E range (it also resolves the mcpKey* beta-token columns),
+// but this read stays A1:B.
 const USERS_RANGE = "Users!A1:B";
 
 type SectionKey = (typeof STRUCTURED_SECTION_KEYS)[number];
@@ -147,15 +148,19 @@ export async function appendRecJobDescRow(
   return { rowId: res.rowId, messageId };
 }
 
-// Resolves the HR recipients (A3): primary = `Users` rows with role hr_admin; fallback = the
-// Config key hrNotifyEmail. Returns [] when neither yields an address (⇒ no email is sent).
+// Roles that receive the approve notification: hr_admin (the real HR recipient) and admin_user
+// (operator/admin beta testers, so they can verify the full flow end-to-end including the email).
+const NOTIFY_ROLES = new Set(["hr_admin", "admin_user"]);
+
+// Resolves the HR recipients (A3): primary = `Users` rows whose role is in NOTIFY_ROLES; fallback =
+// the Config key hrNotifyEmail. Returns [] when neither yields an address (⇒ no email is sent).
 async function resolveHrRecipients(deps: ServiceDeps): Promise<string[]> {
   const sheetId = deps.resources.googleSheets?.hrRecruitmentSheetId;
   if (sheetId) {
     try {
       const { values } = await deps.connectors.sheets.getValues({ sheetId, range: USERS_RANGE });
       const emails = values
-        .filter((r) => (r[1] ?? "").trim().toLowerCase() === "hr_admin")
+        .filter((r) => NOTIFY_ROLES.has((r[1] ?? "").trim().toLowerCase()))
         .map((r) => (r[0] ?? "").trim())
         .filter((e) => e.includes("@"));
       if (emails.length > 0) return emails;

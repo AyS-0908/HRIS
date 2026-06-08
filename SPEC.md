@@ -284,12 +284,13 @@ processId: hr.recruitment   # v0.3.0 — 4 tools
 tools:
   submit_job_request        # creates instance → status: pending_manager_validation
   generate_job_description  # AI draft + create doc (live Docs in live mode); status unchanged
-  approve_job_description    # role=manager; pending_manager_validation → approved (human checkpoint);
-                             #   appends the rec_jobDesc row AND notifies HR by email (D1, best-effort)
+  approve_job_description    # permissionScope: manager|admin_user; pending_manager_validation →
+                             #   approved (human checkpoint); appends the rec_jobDesc row AND
+                             #   notifies HR by email (D1, best-effort)
   get_recruitment_policy     # read-only query (no process binding): the resolved per-company policy
 ```
 
-> [Resolved 2026-06-05 — D1] HR is notified by **email at APPROVE** (when the Sheet row is written with the doc URL), not at publish. Recipients = `Users` rows with role `hr_admin` (fallback: Config key `hrNotifyEmail`). Best-effort: a failed email never fails the approval.
+> [Resolved 2026-06-05 — D1] HR is notified by **email at APPROVE** (when the Sheet row is written with the doc URL), not at publish. Recipients = `Users` rows with role `hr_admin` or `admin_user` (the latter so operator/admin beta testers verify the full flow; fallback: Config key `hrNotifyEmail`). Best-effort: a failed email never fails the approval.
 >
 > **Future modules (deferred — D4):** `publish_job_opening` (job-board diffusion / HR publishing front) and `update_candidate_status` (candidate sub-process) are NOT in this module; they belong to a separate future MCP module and were removed from the V1 sample.
 
