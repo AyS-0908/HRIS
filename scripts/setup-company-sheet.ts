@@ -4,10 +4,10 @@
 // an empty/just-created tab; a mismatch is warned, never overwritten).
 //
 // Tabs:
-//   - rec_jobDesc : id | titre | mgr | url | status        (always)
-//   - Config      : key | value  (+ default policy rows)    (always)
-//   - Users       : email | role  (RH-editable identity)    (always)
-//   - proc_state / proc_audit                               (only with --storage sheets)
+//   - rec_jobDesc : id | titre | mgr | url | status                                  (always)
+//   - Config      : key | value  (+ default policy rows)                              (always)
+//   - Users       : email | role | mcpKeyHash | mcpKeyStatus | mcpKeyCreatedAt        (always)
+//   - proc_state / proc_audit                                                         (only with --storage sheets)
 //
 // Usage:
 //   GOOGLE_SERVICE_ACCOUNT_JSON_FILE=./sa.json \
@@ -60,8 +60,10 @@ function requiredTabs(withStorage: boolean): Record<string, { headers: string[];
     // RH-editable identity (D2): maps a person (email/id = x-actor-id) to a company role.
     // The server reads this to make the Sheet role authoritative over the advisory header.
     // role hr_admin rows also serve as HR notification recipients at approve (D1, fallback
-    // to the Config key hrNotifyEmail when empty).
-    Users: { headers: ["email", "role"] },
+    // to the Config key hrNotifyEmail when empty). The mcpKey* columns hold a per-actor beta
+    // token (sha256 hash | active|revoked | ISO timestamp) managed by `npm run add-actor-key
+    // -- --store users-sheet` — adding/revoking a tester needs no restart or Coolify edit.
+    Users: { headers: ["email", "role", "mcpKeyHash", "mcpKeyStatus", "mcpKeyCreatedAt"] },
   };
   if (withStorage) {
     tabs.proc_state = { headers: [...SHEETS_STORAGE_HEADERS.proc_state] };

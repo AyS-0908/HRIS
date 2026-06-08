@@ -6,10 +6,10 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { App } from "../app.js";
-import { resolveApiKeyIdentity } from "../core/auth/apiKey.js";
+import { resolveApiKeyIdentityAsync } from "../core/auth/apiKey.js";
 import { resolveContext, type IdentityHeaders } from "../core/auth/context.js";
 import { forbidden } from "../core/errors/appError.js";
-import { resolveActorRole } from "../core/auth/resolveActorRole.js";
+import { resolveActorRole, resolveActorByToken } from "../core/auth/resolveActorRole.js";
 import { toInputSchema } from "../core/validation/inputSchema.js";
 import { AppError, toClientError } from "../core/errors/appError.js";
 import { STANDARD_VERSION } from "../version.js";
@@ -54,6 +54,17 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
     return resolveActorRole(companyId, actorId, sheetId, app.connectors.sheets, app.logger);
   };
 
+  // Authenticates a Sheet-backed beta token (D2): given a company + token hash, resolves the
+  // active Users-tab row that carries it. Injected into resolveApiKeyIdentityAsync as the second
+  // auth source (after config keys). Scoped per company to its own tracking sheet; best-effort
+  // (a missing sheet/tab or read failure returns null → the token simply doesn't authenticate).
+  const resolveUsersToken = async (companyId: string, tokenHash: string) => {
+    if (!app.companies.has(companyId)) return null;
+    const sheetId = app.companies.get(companyId)!.resources.googleSheets?.hrRecruitmentSheetId;
+    if (!sheetId) return null;
+    return resolveActorByToken(companyId, tokenHash, sheetId, app.connectors.sheets, app.logger);
+  };
+
   // Anti-spoof: the tenant is the company the API key is bound to. If the caller also sends an
   // x-company-id, it must match — a mismatch is an attempt to act as another tenant (FORBIDDEN).
   const assertCompanyHeaderMatches = (companyId: string): void => {
@@ -65,7 +76,7 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     // API key both authenticates and selects the tenant; listing reflects that company's modules.
-    const { companyId } = resolveApiKeyIdentity(headers.apiKey, app.companies);
+    const { companyId } = await resolveApiKeyIdentityAsync(headers.apiKey, app.companies, resolveUsersToken);
     const core = CORE_TOOLS.map((t) => ({ ...t, inputSchema: EMPTY_INPUT }));
     let business: { name: string; description: string; inputSchema: Record<string, unknown> }[] = [];
     try {
@@ -90,7 +101,11 @@ export function buildServer(app: App, headers: IdentityHeaders & { apiKey?: stri
     try {
       // Authentication precedes everything (SPEC §5 step 1). The key also binds the tenant
       // (and, for a per-actor claude.ai-web key, the actor identity).
-      const { apiKeyId, companyId, actorId, actorRole } = resolveApiKeyIdentity(headers.apiKey, app.companies);
+      const { apiKeyId, companyId, actorId, actorRole } = await resolveApiKeyIdentityAsync(
+        headers.apiKey,
+        app.companies,
+        resolveUsersToken,
+      );
 
       if (name === "health_check") return ok(await healthCheck(app));
       if (name === "get_standard_version") return ok({ standardVersion: STANDARD_VERSION });

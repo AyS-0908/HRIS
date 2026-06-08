@@ -1,6 +1,6 @@
 {
   "name": "mcp-custom-standard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Reusable MCP server. Business logic plugs in as modules/processes via config + drop-in folders. Core code is never edited to onboard a company.",
   "type": "module",

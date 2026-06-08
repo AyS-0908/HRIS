@@ -25,7 +25,7 @@ With the committed `config/company.example.yaml`, the dev key is **`dev-acme-key
 Gate (a change is done only when all are green — SPEC §15):
 
 ```bash
-npm test            # full suite        (currently 52 passed / 11 files)
+npm test            # full suite        (currently 100% tests on 100% files passed)
 npm run check-standard
 npm run build
 ```
@@ -43,11 +43,27 @@ Two connection models (both per-company authenticated):
 | Model | Key kind | Identity source |
 |---|---|---|
 | **Claude Desktop + `mcp-remote`** | company-wide key (`auth.apiKeyHash`) | per-person `x-actor-*` headers |
-| **claude.ai web** custom connector | per-actor key (`auth.actorKeys[]`) | the **token itself** binds `{actorId, role}` (web can't send custom headers) |
+| **claude.ai web** custom connector | per-actor key — config `auth.actorKeys[]` **or** the `Users` tab `mcpKeyHash` (D2) | the **token itself** binds `{actorId, role}` (web can't send custom headers) |
 
 `x-company-id` is advisory: if sent it must match the key's company, else `FORBIDDEN` (anti-spoof).
 The effective role is resolved from the RH-editable `Users` tab (D2); the header/token role is the
-fallback. Full connection steps: [pilot-access.md](pilot-access.md).
+fallback. Auth sources are tried in order: config `actorKeys` → `Users.mcpKeyHash` (active) →
+config `apiKeyHash`. Full connection steps: [pilot-access.md](pilot-access.md).
+
+**Beta testers (no Coolify, no restart).** A claude.ai-web token can live in the `Users` tab
+instead of a config file, so an operator adds/revokes a tester with one command and the change
+takes effect within the server's 60 s Users-tab cache:
+
+```bash
+# add: operator keeps the tester's row (email|role) in the Users tab, then mints their token
+npm run add-actor-key -- --company config/company.acme.yaml --actor friend@acme.com --store users-sheet
+# revoke (or just set Users.mcpKeyStatus = revoked by hand)
+npm run add-actor-key -- --company config/company.acme.yaml --actor friend@acme.com --store users-sheet --revoke
+```
+
+The raw token is printed once; only its sha256 hash is stored in `Users.mcpKeyHash` (status
+`active`/`revoked`, plus an ISO `mcpKeyCreatedAt`). The tester never runs Terminal or touches
+Coolify — they paste the token as their connector's bearer token.
 
 ## 3. Add a company (zero core edits)
 
@@ -65,7 +81,8 @@ npm run setup-company-sheet -- --company config/company.acme.yaml   # +--storage
 # add the path to COMPANY_CONFIG_PATH (comma-separated for several), restart
 ```
 
-Issue a claude.ai-web token per person with `npm run add-actor-key`. Full detail (Google
+Issue a claude.ai-web token per person with `npm run add-actor-key` (config file, or
+`--store users-sheet` for the no-restart `Users`-tab path — see §2). Full detail (Google
 Workspace prep, sharing, OAuth modes): [onboarding-company.md](onboarding-company.md).
 
 ## 4. How to add a module (the deterministic SOP)
@@ -157,7 +174,7 @@ The Sheet is shared between the operator (code) and RH. The contract:
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `UNAUTHENTICATED` | Wrong/missing key. The key must match a company's `auth.apiKeyHash` (or an `actorKeys[].keyHash`). No server-wide key exists. |
+| `UNAUTHENTICATED` | Wrong/missing/revoked key. The key must match a company's `auth.apiKeyHash`, an `actorKeys[].keyHash`, or an **active** `Users.mcpKeyHash`. No server-wide key exists. A revoked/blank `Users` token never authenticates. |
 | `FORBIDDEN` on every call | `x-company-id` doesn't match the key's company; or no valid role (Users tab token invalid *and* no valid header/bound role). |
 | `VALIDATION_ERROR` at generate (live) | Company missing `googleDocs.jobDescriptionTemplateId` / `googleDrive.hrKnowledgeFolderId`. |
 | `INVALID_STATE` | The tool isn't allowed in the current process status (status gate) — expected for e.g. re-approve. |

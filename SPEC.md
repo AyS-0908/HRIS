@@ -55,6 +55,8 @@ Rules:
 
 [Resolved 2026-06-05 — D2] Identity from the Sheet. The effective `actorRole` is resolved server-side from the company's RH-editable `Users` tab (`email | role`), keyed by `actorId` (`core/auth/resolveActorRole.ts`). The `x-actor-role` header is advisory and used only as a fallback when the Users tab is absent/empty, the actor is unlisted, or a per-actor key does not bind a role. The company YAML remains the closed set of valid roles.
 
+[Resolved 2026-06-08 — D2] Beta-tester tokens in the `Users` tab (no restart). A per-actor (claude.ai-web bearer) token may live in the `Users` tab alongside the role, in columns `mcpKeyHash | mcpKeyStatus | mcpKeyCreatedAt` (sha256 of the token, `active|revoked`, ISO timestamp). The server resolves an incoming key in this order (`core/auth`): (1) config `auth.actorKeys[]` → (2) `Users.mcpKeyHash` where `mcpKeyStatus == active` → (3) config `auth.apiKeyHash` (`resolveApiKeyIdentityAsync` + `resolveActorByToken`, Users tab cached 60 s). A token resolved from the Users tab binds `{ actorId = Users.email, actorRole = Users.role, companyId = the company owning the Sheet }`. Only the sha256 hash is ever stored — the raw token is printed once by `add-actor-key --store users-sheet` and never persisted to config, Sheet, logs, or Coolify; a revoked or blank hash never authenticates. So an operator adds/revokes a tester with one command, effective within ~1 min, with no Coolify edit and no server restart. The 2-column `email | role` schema stays valid (back-compatible).
+
 ---
 
 ## 3. REPOSITORY LAYOUT (authoritative — single hierarchy)
@@ -319,6 +321,7 @@ Core and modules versioned independently (semver). Breaking core change requires
 ```env
 NODE_ENV= PORT= MCP_SERVER_PUBLIC_URL= COMPANY_CONFIG_PATH= LOG_LEVEL=
 # API keys are per-company: config/company.<id>.yaml stores auth.apiKeyHash / auth.actorKeys[].keyHash.
+# A per-actor token may instead live in the Sheet `Users` tab (mcpKeyHash, active|revoked) — D2, no restart.
 # connector / storage mode
 GOOGLE_CONNECTORS=simulated|live   STORAGE_BACKEND=memory|sheets
 # live Google (service account — Sheets always, Docs via Shared Drive). Prefer the *_FILE path:

@@ -11,7 +11,8 @@ import { resolveRecruitmentPolicy } from "./policy.js";
 
 export const REC_JOBDESC_TAB = "rec_jobDesc";
 // RH-editable identity tab (D2). Rows with role hr_admin are the HR notification recipients
-// at approve (D1). Same range the server uses for role resolution.
+// at approve (D1). Only the email|role columns are needed here; the server's auth path reads the
+// wider A1:E range (it also resolves the mcpKey* beta-token columns), but this read stays A1:B.
 const USERS_RANGE = "Users!A1:B";
 
 type SectionKey = (typeof STRUCTURED_SECTION_KEYS)[number];

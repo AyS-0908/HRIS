@@ -4,6 +4,23 @@ Core and modules are versioned independently (SPEC §13). Breaking core changes 
 
 ## [Unreleased]
 
+### Beta-tester tokens in the `Users` tab (D2 — no restart)
+- A per-actor (claude.ai-web bearer) token may now live in the RH-editable `Users` tab instead of
+  a config file, so an operator adds/revokes a tester with **no Coolify edit and no server
+  restart**. The `Users` tab grows three columns — `mcpKeyHash | mcpKeyStatus | mcpKeyCreatedAt`
+  (sha256 of the token, `active|revoked`, ISO timestamp); the old 2-column `email | role` schema
+  stays valid (back-compatible parser).
+- **Auth resolution order** (`core/auth`): config `auth.actorKeys[]` → `Users.mcpKeyHash` where
+  `mcpKeyStatus == active` → config `auth.apiKeyHash`. New `resolveApiKeyIdentityAsync`
+  (config-first, then the Sheet) + `resolveActorByToken`; the `Users` tab is read once and cached
+  60 s (shared with the D2 role lookup), so an add/revoke takes effect within ~1 min. A token
+  resolved from the tab binds `{actorId = Users.email, role = Users.role, companyId}`.
+- **Operator flow:** `npm run add-actor-key -- --company … --actor … --store users-sheet
+  [--revoke]` writes the hash/status/timestamp via the Sheets API (no `SheetsConnector` contract
+  change). The raw token is printed **once** and never persisted to config, Sheet, logs, or
+  Coolify; a revoked or blank hash never authenticates. Non-breaking (existing config `actorKeys`
+  and company-wide key + `x-actor-*` headers are unchanged and add no extra Sheet I/O). +12 tests.
+
 ### Project memory cleanup
 - Removed the obsolete repo-local memory files (`memory/implementation-notes.md`,
   `memory/lessons.md`) in favor of the project rule that current memory lives in `Progress.md`

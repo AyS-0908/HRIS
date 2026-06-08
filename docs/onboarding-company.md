@@ -95,9 +95,13 @@ are honored — any other key in the `Config` tab is **ignored**. Identity lives
 `Users` tab (email → role), and the closed set of *valid* roles/permissions still comes from
 the server config — a `Config` policy key can never grant a role.
 
-The **`Users` tab** (`email | role`) is created empty (header row only); RH fills one row per
-person, e.g. `marie.dupont@acme.com | manager`, `drh@acme.com | hr_admin`. The server resolves
-each caller's role from this tab (D2); editing it re-assigns roles with no redeploy.
+The **`Users` tab** (`email | role | mcpKeyHash | mcpKeyStatus | mcpKeyCreatedAt`) is created with
+the header row only; RH fills one row per person, e.g. `marie.dupont@acme.com | manager`,
+`drh@acme.com | hr_admin` (just the first two columns). The server resolves each caller's role from
+this tab (D2); editing it re-assigns roles with no redeploy. The trailing `mcpKey*` columns are
+**managed by the helper** `npm run add-actor-key -- … --store users-sheet` (a claude.ai-web beta
+token: sha256 hash + `active`/`revoked` + timestamp) — RH never edits them by hand except to set
+`mcpKeyStatus = revoked`. See [pilot-access.md](pilot-access.md) §5.1.
 
 ## 4. Enable the company
 

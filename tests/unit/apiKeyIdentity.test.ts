@@ -1,7 +1,12 @@
 // Unit tests for per-company API key resolution (SPEC §2): a key authenticates AND binds the
 // tenant, so it can act only as its own company; a wrong/missing key is UNAUTHENTICATED.
 import { describe, it, expect } from "vitest";
-import { resolveApiKeyIdentity, hashApiKey } from "../../src/core/auth/apiKey.js";
+import {
+  resolveApiKeyIdentity,
+  resolveApiKeyIdentityAsync,
+  hashApiKey,
+  type UsersTokenResolver,
+} from "../../src/core/auth/apiKey.js";
 import { CompanyRegistry } from "../../src/core/config/loadCompany.js";
 import { AppError } from "../../src/core/errors/appError.js";
 
@@ -74,5 +79,58 @@ describe("resolveApiKeyIdentity", () => {
     const id = resolveApiKeyIdentity("globex-secret", registry());
     expect(id.companyId).toBe("globex");
     expect(id.actorId).toBeUndefined();
+  });
+});
+
+describe("resolveApiKeyIdentityAsync (Users-tab beta tokens, SPEC auth_resolution_order)", () => {
+  // Stubs the Sheet source: only "sheet-token" is an active Users-tab token (in globex).
+  const usersToken: UsersTokenResolver = async (companyId, tokenHash) =>
+    companyId === "globex" && tokenHash === hashApiKey("sheet-token")
+      ? { actorId: "tester@globex.test", role: "manager" }
+      : null;
+
+  async function codeOfAsync(p: Promise<unknown>): Promise<string> {
+    try {
+      await p;
+      return "<no-throw>";
+    } catch (e) {
+      return e instanceof AppError ? e.code : "<non-app-error>";
+    }
+  }
+
+  it("resolves an ACTIVE Users-tab token to { companyId, actorId, role }", async () => {
+    const id = await resolveApiKeyIdentityAsync("sheet-token", registry(), usersToken);
+    expect(id.companyId).toBe("globex");
+    expect(id.actorId).toBe("tester@globex.test");
+    expect(id.actorRole).toBe("manager");
+  });
+
+  it("a config actor key still wins WITHOUT consulting the Sheet (no I/O on the common path)", async () => {
+    let consulted = false;
+    const spy: UsersTokenResolver = async (...a) => {
+      consulted = true;
+      return usersToken(...a);
+    };
+    const id = await resolveApiKeyIdentityAsync("marie-token", registry(), spy);
+    expect(id.actorId).toBe("marie@globex.test");
+    expect(consulted).toBe(false);
+  });
+
+  it("a company-wide config key still authenticates (no bound actor)", async () => {
+    const id = await resolveApiKeyIdentityAsync("acme-secret", registry(), usersToken);
+    expect(id.companyId).toBe("acme");
+    expect(id.actorId).toBeUndefined();
+  });
+
+  it("a token with no active Users row is UNAUTHENTICATED (revoked/blank/unknown)", async () => {
+    expect(await codeOfAsync(resolveApiKeyIdentityAsync("sheet-token", registry(), async () => null))).toBe(
+      "UNAUTHENTICATED",
+    );
+  });
+
+  it("a missing token is UNAUTHENTICATED", async () => {
+    expect(await codeOfAsync(resolveApiKeyIdentityAsync(undefined, registry(), usersToken))).toBe(
+      "UNAUTHENTICATED",
+    );
   });
 });

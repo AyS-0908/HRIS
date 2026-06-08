@@ -259,7 +259,7 @@ Write-Host "==> Code erreur : $(($rForbidden.result.content[0].text | ConvertFro
 # Ouvrir un nouveau dossier
 $rD    = Invoke-RestMethod http://localhost:3000/mcp -Method POST -Headers $h -Body (
     ConvertTo-Json -Depth 5 @{
-        jsonrpc = "2.0"; id = 60; method = "tools/call"
+        jsonrpc = "2.0"; id = 75; method = "tools/call"
         params  = @{ name = "submit_job_request"; arguments = @{ title = "Test doublon"; justification = "test"; plannedHire = $false } }
     }
 )

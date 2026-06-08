@@ -93,6 +93,11 @@ role }` at `core/auth`, so no `x-actor-*` header is needed.
 
 ### 5.1 Mint a per-actor token (operator, once per person)
 
+Two stores. Pick **A** for a permanent company member, **B** for a beta tester you want to add or
+revoke without touching Coolify or restarting the server.
+
+**A. Config file (`auth.actorKeys`).** Persistent; needs a server restart to load:
+
 ```bash
 npm run add-actor-key -- --company config/company.acme.yaml \
   --actor marie.dupont@acme.com --role manager
@@ -101,6 +106,25 @@ npm run add-actor-key -- --company config/company.acme.yaml \
 
 `--role` is optional — omit it to let the role come from the `Users` tab (D2). Re-running for the
 same `--actor` **re-issues** (replaces) that person's token. Restart the server to load it.
+
+**B. `Users` tab (`--store users-sheet`) — beta testers, no Coolify, no restart.** First keep the
+tester's row in the `Users` tab (`email | role`), then:
+
+```bash
+# add / re-issue
+npm run add-actor-key -- --company config/company.acme.yaml \
+  --actor friend@example.com --store users-sheet
+# revoke (or set Users.mcpKeyStatus = revoked by hand)
+npm run add-actor-key -- --company config/company.acme.yaml \
+  --actor friend@example.com --store users-sheet --revoke
+```
+
+This writes `mcpKeyHash` (sha256 of the token), `mcpKeyStatus` (`active`/`revoked`) and
+`mcpKeyCreatedAt` to that person's `Users` row — **never** the raw token, which is printed once.
+The server reads the `Users` tab live (cached 60 s), so an add/revoke takes effect within ~1
+minute with **no Coolify edit and no restart**. (Requires `GOOGLE_SERVICE_ACCOUNT_JSON_FILE` /
+`GOOGLE_SERVICE_ACCOUNT_JSON` so the helper can reach the sheet; the service account needs edit
+access to it.) The tester just pastes the token (5.2) — they never run Terminal or open Coolify.
 
 ### 5.2 Add the connector (the DRH, in the browser)
 

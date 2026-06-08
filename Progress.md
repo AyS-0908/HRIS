@@ -1,6 +1,6 @@
 # Progress.md — MCP Custom Standard
 
-Last updated: 2026-06-07 · Branch: `feat/mcp-standard-v1`
+Last updated: 2026-06-08 · Branch: `main`
 
 > Status board for a fresh agent. Authoritative acceptance = `SPEC.md` §15. History lives in
 > git + `STANDARD_CHANGELOG.md` — this file is **current state + next moves only**, kept short.
@@ -24,6 +24,15 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
   (`auth.actorKeys[]`) bind identity into the token for claude.ai web (no custom headers) — all at
   `core/auth`. New `npm run add-actor-key`. Verified locally over both paths + full
   submit→generate→approve→re-approve(INVALID_STATE). Native web live-verify **blocked on TLS**.
+- **Beta-tester tokens in the `Users` tab (D2, no-restart).** Operator adds/revokes a claude.ai-web
+  tester from the `Users` tab — new columns `mcpKeyHash | mcpKeyStatus | mcpKeyCreatedAt` — with
+  `npm run add-actor-key -- … --store users-sheet [--revoke]`. The server resolves bearer tokens in
+  order **config `actorKeys` → active `Users.mcpKeyHash` → config `apiKeyHash`**
+  (`resolveApiKeyIdentityAsync` + `resolveActorByToken`, 60 s cache), so an add/revoke takes effect
+  within ~1 min with **no Coolify edit, no server restart, no Apps Script**. Raw token printed once;
+  only its sha256 hash is stored; revoked/blank hashes never authenticate. +12 tests (5 token unit,
+  2 async-resolver unit, 5 server integration over an in-process MCP transport). Parser is
+  back-compatible with the old 2-column `email|role` schema.
 - **Consolidated guides.** `docs/developer-guide.md` + `docs/end-user-guide.md` (with the Sheet
   may/must-not contract). README/.env.example/onboarding/pilot-access updated for per-company keys.
 - **Core engine.** Streamable HTTP MCP (stateless), 3 core tools, identity/auth, closed error
@@ -66,15 +75,14 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
   input template for new business modules where the operator describes `Who / step / business
   action / Sheet columns`, and the AI-coder translates that into coarse tools, statuses,
   permissions, schemas and verification. Linked it from `docs/developer-guide.md`.
-- **Gate green:** `npm test` → **60 passed / 13 files**; `npm run typecheck` clean;
+- **Gate green:** `npm test` → **75 passed / 14 files**; `npm run typecheck` clean;
   `npm run check-standard` OK (4 tools); `npm run build` OK.
 
 ## Now
 
-- Storage concurrency hardening just landed (in-process `LockProvider`, runtime serialization,
-  +8 tests). Gate green. Uncommitted working-tree changes — commit when ready.
-- Otherwise nothing in flight; clean checkpoint on `feat/mcp-standard-v1`. Tracks A#1, A#2 and
-  the two guides are done.
+- Beta-tester `Users`-tab tokens just landed (3-source auth order, 60 s cache, `--store
+  users-sheet [--revoke]`, +12 tests). Gate green. Clean checkpoint on `main`.
+- Otherwise nothing in flight. Tracks A#1, A#2, the two guides, and the beta-token path are done.
 
 ## Next — remaining backlog
 
@@ -127,6 +135,14 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
 
 ## Last verification
 
+- **2026-06-08 — beta-tester `Users`-tab tokens (D2, no restart).** Added the 5-column `Users`
+  schema (`mcpKeyHash | mcpKeyStatus | mcpKeyCreatedAt`), the 3-source auth order (config
+  `actorKeys` → active `Users.mcpKeyHash` → config `apiKeyHash`) via `resolveApiKeyIdentityAsync`
+  + `resolveActorByToken` (60 s cache), and `add-actor-key --store users-sheet [--revoke]`. Raw
+  token printed once; only its sha256 hash stored; revoked/blank never authenticates; back-compat
+  with the 2-column `email|role` schema. +12 tests (5 token unit, 2 async-resolver unit, 5 server
+  integration over an in-process MCP transport). Gate green: `npm run typecheck`, `npm test`
+  (75 tests / 14 files), `npm run check-standard`.
 - **2026-06-07 — storage concurrency hardening.** Added `runtime/lockProvider.ts` and runtime
   serialization of same-instance contenders (gate→handler→updateStatus per company+instance).
   New `tests/unit/lockProvider.test.ts` (FIFO/cross-key/error-isolation/drain) and
