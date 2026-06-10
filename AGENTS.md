@@ -79,6 +79,8 @@ Anything not specified anywhere = simplest correct option, noted in a code comme
 | Side effects | services (called by handlers), then connectors |
 | Per-company wiring | `config/company.<id>.yaml`, validated by zod, fail-fast |
 | New module scaffold | `scripts/create-module.ts` from `_template` |
+| Product vision / module roadmap | `docs/hris_macro_spec.md` |
+| Apps Script workspace layer (setup + downstream HR ops) | `apps-script/` (planned), spec `docs/hris_appscript_spec_final.txt` |
 
 ---
 
@@ -94,5 +96,7 @@ Anything not specified anywhere = simplest correct option, noted in a code comme
 - The HR recruitment sample uses **coarse** tools (`submit_job_request`, `approve_job_description`…), not raw technical steps. Match that granularity when adding tools.
 - Connectors are provider-neutral surfaces. Live paths now exist for **Sheets** (service account), **Docs** (service-account Shared Drive *or* OAuth user-delegation) and **Gmail** (OAuth `gmail.send`, used for the HR notification at approve — D1). Drive/forms/calendar/http/webhook remain simulated skeletons. Live Gmail is code-complete + unit-tested but its end-to-end send is only verifiable after the operator runs an OAuth re-consent including `gmail.send` (see Progress.md).
 - `[Assumed]` in the spec (e.g. header-based identity) marks an unresolved decision — keep the resolved fields stable; only the extraction may change.
+- **Apps Script boundary:** the Apps Script layer never writes rows to `proc_state`/`proc_audit`/`rec_jobDesc` (headers-if-empty only), never calls MCP tools, never duplicates auth/status logic. One spreadsheet per company, transversal across HR modules (`Architecture.md`).
+- **Sheet protections must keep the service account as editor** — MCP writes as the SA; a protection that omits `serviceAccountEmail` silently breaks `rec_jobDesc`/`proc_*` writes.
 
 ---

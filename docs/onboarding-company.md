@@ -18,10 +18,14 @@ in its own Drive (RGPD-friendly, multi-company).
      sections, for precise placement (recommended for a deterministic, reproducible layout)
    A template without placeholders still works (you get a titled copy); placeholders just let
    the content be injected. Prefer the four structured placeholders over `{{BODY}}`.
-3. **A Google Sheet** — recruitment tracking. The MCP needs a `rec_jobDesc` tab, a `Config`
-   tab, and a `Users` tab (`email | role`, the RH-editable identity map — D2), all created for
-   you by `setup-company-sheet` (below). If you run the Sheets storage backend, it also needs
-   `proc_state` / `proc_audit` tabs.
+3. **A Google Sheet** — the company's **single transversal HRIS spreadsheet** (one per
+   company, shared by all current and future HR modules — see `Architecture.md`). The MCP
+   needs a `rec_jobDesc` tab, a `Config` tab, and a `Users` tab (`email | role`, the
+   RH-editable identity map — D2), all created for you by `setup-company-sheet` (below). If
+   you run the Sheets storage backend, it also needs `proc_state` / `proc_audit` tabs. The
+   bound Apps Script `initializeHrisWorkspace`
+   ([hris_appscript_spec_final.txt](hris_appscript_spec_final.txt)) is the operator-facing
+   way to create the full tab set (incl. downstream + `employees`/`library`) once built.
 4. **Share all three** (folder, Doc, Sheet) with the **service-account email** (the
    `client_email` of `GOOGLE_SERVICE_ACCOUNT_JSON`) with **edit** access. Without this the
    MCP cannot copy the template, write rows, or read the Config tab.

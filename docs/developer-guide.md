@@ -181,6 +181,15 @@ The Sheet is shared between the operator (code) and RH. The contract:
   closed set of valid roles lives in the server config (`company.<id>.yaml`), and identity lives in
   the separate `Users` tab.
 
+**Sheet structure (locked).** One spreadsheet per company, **transversal across all HR modules**.
+Shared tabs are unprefixed (`Config`, `Users`, `employees`, `library`, `proc_state`, `proc_audit`);
+module tabs are prefixed (`rec_*`, future `trn_*`/`perf_*`/`eng_*`; legacy exception:
+`Applications`, `Activities`). The Apps Script layer
+([hris_appscript_spec_final.txt](hris_appscript_spec_final.txt)) creates and protects all tabs at
+init (`initializeHrisWorkspace`) and owns the downstream tabs (`rec_publications`, `Applications`,
+`Activities`, `form_responses_raw`); it never writes rows to `rec_jobDesc`/`proc_state`/`proc_audit`.
+Protections must keep the **service-account email as editor**, or MCP writes break.
+
 ## 8. Troubleshooting
 
 | Symptom | Likely cause / fix |

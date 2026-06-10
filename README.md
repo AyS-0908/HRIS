@@ -6,6 +6,12 @@ edited to onboard a company or add a module.
 
 - Contract: [SPEC.md](SPEC.md) · Project rules: [AGENTS.md](AGENTS.md) · Structure: [Architecture.md](Architecture.md) · State: [Progress.md](Progress.md)
 
+This server is the **business brain of a larger HRIS-in-Google-Workspace product**
+(vision + module roadmap: [docs/hris_macro_spec.md](docs/hris_macro_spec.md)). The current
+HR recruitment module is module 1 of N. The companion **Apps Script layer** (workspace setup
++ downstream HR workflow, spec: [docs/hris_appscript_spec_final.txt](docs/hris_appscript_spec_final.txt))
+operates on **one transversal spreadsheet per company** shared by all HR modules.
+
 ## Requirements
 
 - Node.js ≥ 20

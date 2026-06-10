@@ -1,0 +1,602 @@
+# MICRO SPEC — HRIS Google Workspace Setup
+
+```yaml
+spec_id: hris.google_workspace_setup.v2
+consumer: AI Coder
+target: Google Sheets + Apps Script (bound script)
+repo_contract_source: MCP backend remains source of truth
+parent_spec: docs/hris_macro_spec.md   # product-level vision; recruitment is module 1 of N
+```
+
+## 0. Resolved decisions (locked 2026-06-09)
+
+```yaml
+spreadsheet_structure:
+  decision: ONE spreadsheet per company, transversal across all HR modules
+  rationale: MCP points at a single hrRecruitmentSheetId; Config/Users/employees/library
+             are cross-module; SMB volumes fit; cross-module reporting stays same-file.
+  tab_naming:
+    shared_unprefixed: [Config, Users, employees, library, proc_state, proc_audit]
+    module_prefixed: ["rec_*", "trn_*", "perf_*", "eng_*"]
+    legacy_exception: Applications, Activities keep their spec-locked unprefixed names (V1)
+  split_trigger_v2: if one module's high-volume data tab outgrows Sheets or needs distinct
+                    Google-level sharing, move THAT data tab to its own spreadsheet in the
+                    same Drive folder, keyed by job_process_id. Governance + MCP tabs stay.
+
+script_mode:
+  decision: BOUND script first (template + getActive()); spreadsheetId input supported
+            for standalone/re-targeting.
+
+protection_model:
+  decision: FULL protection (not warning-only)
+  rule: every protection's editor list = [effective operator user, serviceAccountEmail]
+  critical: MCP writes as the service account — a protection that omits
+            serviceAccountEmail BREAKS MCP writes to rec_jobDesc/proc_state/proc_audit.
+  if_service_account_email_missing_at_init:
+    - still protect, editors = operator only
+    - emit warning "serviceAccountEmail absent — re-run init with it before MCP go-live"
+
+cv_upload:
+  decision: CV is REQUIRED in the candidate form (imperative for recruitment).
+  v1: Google Forms native file-upload question ("CV (PDF)") in the form template.
+      constraint: candidate must be signed in to a Google account to upload.
+      uploads land in the form owner's Drive (move/organize into the HRIS folder is a
+      later automation, not part of init).
+  v1_1_upgrade_path: Apps Script web app form (HtmlService, "execute as me / anyone"),
+      configurable HTML, uploads CV to Drive with NO candidate sign-in. Replaces the
+      Google Form if sign-in friction proves blocking. Spec'd, not built at init.
+
+transversal_tabs:
+  decision: employees + library tabs are CREATED at workspace init (transversal
+            spreadsheet ⇒ every future module reads them). Module logic (MCP tools,
+            Apps Script workflows over them) comes later.
+```
+
+## 1. Purpose
+
+Build the Google Workspace side of the HRIS. Recruitment is the first module; the
+spreadsheet and folder are company-wide (transversal), not recruitment-only.
+
+Apps Script prepares the company workspace:
+
+```yaml
+creates_or_updates:
+  - Google Sheet structure (governance + recruitment + transversal tabs)
+  - Drive folder
+  - Job Description Google Doc template
+  - Application Google Form template (incl. CV upload question)
+  - protected technical tabs/columns
+  - setup output containing resource IDs for MCP registration
+```
+
+Apps Script is not the business brain.
+
+```yaml
+mcp_owns:
+  - upstream manager recruitment request
+  - job description generation
+  - manager approval
+  - approved job-description row creation in rec_jobDesc
+  - HR notification email at approval
+  - MCP technical process state in proc_state
+  - MCP technical audit trail in proc_audit
+
+apps_script_owns:
+  - workspace initialization (this spec)
+  - downstream HR recruitment workflow after rec_jobDesc.status = "approved"
+  - publication channel selection
+  - publication message pre-drafting
+  - Google Form creation for candidates (copy of template, one per approved job)
+  - candidate response collection
+  - candidate data normalization
+  - AI-assisted candidate pre-analysis
+  - HR-side candidate pipeline tracking
+  - HR-side comments, next steps, and operational statuses
+
+boundary_rule:
+  - Apps Script reads rec_jobDesc as the downstream entry point
+  - Apps Script must not call MCP tools for downstream recruitment operations
+  - Apps Script must not write MCP technical tabs proc_state or proc_audit
+  - Apps Script may write its own downstream recruitment tabs
+```
+
+## 2. Hard Rules
+
+```yaml
+must:
+  - one spreadsheet per company (transversal, all HR modules)
+  - preserve existing data
+  - add missing tabs
+  - add missing columns at the end only
+  - seed default Config keys only when absent
+  - seed first admin in Users when absent
+  - protect technical tabs WITH serviceAccountEmail in the editor list
+  - return all IDs needed by MCP onboarding
+  - treat rec_jobDesc as the MCP-to-Apps-Script handoff tab
+  - keep rec_jobDesc header exactly: [id, titre, mgr, url, status]
+  - read only rec_jobDesc rows where status = "approved" for downstream HR workflow
+  - create downstream Apps Script tabs separately from MCP technical tabs
+  - use Apps Script-owned statuses only in Apps Script-owned tabs
+  - create transversal tabs employees + library (headers + protections; no module logic)
+
+must_not:
+  - delete tabs
+  - delete rows
+  - rename columns
+  - reorder columns
+  - create scoring/ranking fields
+  - ask for age, health, family status, photo, salary history, or similar sensitive data
+  - send emails
+  - publish job offers externally
+  - expose generic write/update/delete sheet endpoints
+  - duplicate MCP auth/permission/status logic in Apps Script
+  - store raw MCP API keys in Sheet cells
+  - edit or append to proc_state
+  - edit or append to proc_audit
+  - change rec_jobDesc header
+  - add downstream workflow columns to rec_jobDesc
+  - modify MCP-created process statuses
+  - treat Apps Script statuses as MCP process statuses
+  - protect any MCP-written tab without serviceAccountEmail as editor (when known)
+```
+
+## 3. Workspace Resources
+
+```yaml
+drive_folder:
+  name: "HRIS - {companyName}"          # module-neutral: transversal decision (§0)
+  legacy_names_accepted: ["HRIS - Recruitment - {companyName}"]   # reuse if found via input/property
+  create_if_missing: true
+  share_with_service_account: if serviceAccountEmail is provided (Editor)
+
+spreadsheet:
+  name: "HRIS - {companyName}"          # module-neutral
+  mode:
+    - use active spreadsheet when bound   # BOUND-FIRST (§0)
+    - else explicit spreadsheetId input
+    - otherwise create new spreadsheet
+
+job_description_template:
+  name: "Job Description Template - {companyName}"
+  placeholders:
+    - "{{TITLE}}"
+    - "{{SUMMARY}}"
+    - "{{BODY}}"
+    - "{{MISSION}}"
+    - "{{RESPONSIBILITIES}}"
+    - "{{PROFILE}}"
+    - "{{CONTEXT}}"
+
+application_form_template:
+  name: "Application Form Template - {companyName}"
+  target_response_tab: form_responses_raw
+  required_questions:
+    - candidate_first_name
+    - candidate_last_name
+    - candidate_email
+    - cv_upload                          # file-upload question, "CV (PDF)" — REQUIRED (§0)
+  optional_questions:
+    - candidate_phone
+    - source
+    - years_of_experience                # structured optional; more per-job questions are
+                                         # added at copy time per job, never to the template
+  cv_upload_note: candidate must sign in to a Google account (Forms platform constraint);
+                  the V1.1 web-app form removes this (§0)
+  forbidden_questions:
+    - age
+    - birth_date
+    - health
+    - family_status
+    - photo
+    - salary_history
+    - personality_score
+    - fit_score
+```
+
+## 4. Sheet Contract
+
+```yaml
+tabs:
+  Config:
+    header: [key, value]
+    editable_by_hr: [value]
+    seed:
+      requireJustification: "false"
+      requireProofDoc: "false"
+      extraValidationStep: "false"
+      requireStructuredSections: "false"
+      hrNotifyEmail: ""
+    rule: MCP reads known keys only; unknown keys are ignored
+
+  Users:
+    header: [email, role, mcpKeyHash, mcpKeyStatus, mcpKeyCreatedAt]
+    editable_by_hr: [email, role]
+    protected_columns: [mcpKeyHash, mcpKeyStatus, mcpKeyCreatedAt]
+    seed:
+      - [adminEmail, hr_admin, "", "", ""]
+    rule:
+      - MCP validates role values against company config
+      - Apps Script may use Users for Sheet UI permissions or routing
+      - raw MCP API keys must never be stored
+      - mcpKeyHash stores only sha256 token hashes managed by MCP helper scripts
+
+  rec_jobDesc:
+    header: [id, titre, mgr, url, status]
+    writer: MCP only
+    reader: Apps Script
+    purpose: handoff table from MCP-approved job descriptions to downstream HR workflow
+    rule:
+      - Apps Script must not change this header
+      - Apps Script must not add columns to this tab
+      - Apps Script starts downstream recruitment only from rows where status = "approved"
+      - Apps Script references rec_jobDesc.id as job_process_id in downstream tabs
+
+  # Transversal tabs (created at init; module logic later — §0 transversal_tabs)
+
+  employees:
+    header:
+      - employee_id
+      - first_name
+      - last_name
+      - work_email
+      - manager_email
+      - department
+      - job_title
+      - employment_type          # permanent | fixed_term | contractor | intern
+      - start_date
+      - status                   # onboarding | active | on_leave | offboarded
+      - location_country
+      - created_at
+      - updated_at
+    writer: Apps Script / HR (HR-editable master data)
+    rule:
+      - data minimization — only what a workflow needs
+      - forbidden columns: age, birth_date, health, religion, family_status, photo,
+        salary_history, personal_id_number
+      - roles never come from this tab (Users + company config only)
+
+  library:
+    header:
+      - library_id
+      - title
+      - type                     # template | policy | regulation | guideline | persona
+      - domain                   # recruitment | training | performance | engagement | hr
+      - resource_ref             # Drive/Doc/Form id or URL
+      - owner_email
+      - ai_usage                 # autofill | reference_only | forbidden
+      - ai_usage_notes
+      - country_scope            # ALL | FR | EU | ...
+      - language
+      - version
+      - valid_from
+      - valid_until
+      - created_at
+      - updated_at
+    writer: HR (content) / system (ids, timestamps)
+    rule:
+      - ai_usage governs whether AI may auto-use an item vs only cite it vs never use it
+      - seed at init: one row per created template (job description Doc, application Form),
+        type=template, domain=recruitment, ai_usage=autofill
+
+  # Downstream Apps Script tabs (recruitment module).
+
+  downstream_resource_model:
+    sheet_tabs:
+      creation: once_per_company
+      reason: stable schema, simpler maintenance, global reporting
+      tabs: [rec_publications, Applications, Activities]
+    google_form:
+      template_creation: once_per_company
+      runtime_creation: copy_one_form_per_approved_job_description
+      reason: each job needs its own candidate form link while preserving a standard
+              question model
+    candidate_responses:
+      raw_responses:
+        owner: Google Forms
+        rule: Google Forms may create a separate raw response tab per copied form
+      normalized_responses:
+        owner: Apps Script
+        tab: Applications
+        rule: every candidate response is normalized into Applications with
+              job_process_id = rec_jobDesc.id
+
+  rec_publications:
+    header:
+      - publication_id
+      - job_process_id
+      - channel
+      - owner_email
+      - deadline
+      - message_draft
+      - validation_status
+      - reviewer_comment
+      - external_url
+      - updated_at
+    writer: Apps Script
+    hr_editable: [channel, owner_email, deadline, reviewer_comment]
+
+  form_responses_raw:
+    owner: Google Forms
+    purpose: raw candidate submissions
+    manual_editing: false
+
+  Applications:
+    header:
+      - application_id
+      - job_process_id
+      - source_response_id
+      - candidate_first_name
+      - candidate_last_name
+      - candidate_email
+      - candidate_phone
+      - cv_file_url              # Drive URL of the uploaded CV (from the form upload)
+      - source
+      - status
+      - owner_email
+      - next_step
+      - last_comment
+      - created_at
+      - updated_at
+      - closed_at
+    writer: Apps Script
+    statuses: [new, screening, interview, offer, hired, rejected, withdrawn]
+
+  Activities:
+    header:
+      - activity_id
+      - application_id
+      - job_process_id
+      - activity_type
+      - title
+      - status
+      - owner_email
+      - external_id
+      - external_url
+      - created_by
+      - created_at
+      - metadata_json
+    writer: Apps Script
+
+  proc_state:
+    header: use exact_storage_headers.proc_state
+    writer: MCP StorageAdapter only
+    reader: MCP only
+    protect: true
+    apps_script_rule:
+      - create tab if missing
+      - write header only if tab is empty
+      - never edit rows
+      - never append rows
+
+  proc_audit:
+    header: use exact_storage_headers.proc_audit
+    writer: MCP StorageAdapter only
+    reader: MCP/operator audit only
+    append_only: true
+    protect: true
+    apps_script_rule:
+      - create tab if missing
+      - write header only if tab is empty
+      - never edit rows
+      - never append rows
+```
+
+## 5. Apps Script Interface
+
+```yaml
+function: initializeHrisWorkspace
+
+input:
+  companyId: string
+  companyName: string
+  adminEmail: string             # default Session.getActiveUser().getEmail()
+  spreadsheetId?: string
+  folderId?: string
+  serviceAccountEmail?: string
+
+output:
+  companyId: string
+  companyName: string
+  spreadsheetId: string
+  spreadsheetUrl: string
+  folderId: string
+  folderUrl: string
+  jobDescriptionTemplateId: string
+  jobDescriptionTemplateUrl: string
+  applicationFormTemplateId: string
+  applicationFormTemplateUrl: string
+  tabsCreated: string[]
+  tabsUpdated: string[]
+  warnings: string[]
+
+behavior:
+  - idempotent
+  - non_destructive
+  - safe_to_run_multiple_times
+  - bound-first (uses active spreadsheet when available)
+
+tabs_in_scope:                   # step 1 creates ALL of these
+  governance: [Config, Users]
+  transversal: [employees, library]
+  mcp_owned: [rec_jobDesc, proc_state, proc_audit]
+  downstream: [rec_publications, Applications, Activities]
+```
+
+## 6. MCP Registration Payload
+
+Apps Script must produce this payload for MCP onboarding:
+
+```yaml
+company:
+  id: "{companyId}"
+  name: "{companyName}"
+
+resources:
+  googleSheets:
+    hrRecruitmentSheetId: "{spreadsheetId}"
+  googleDrive:
+    hrKnowledgeFolderId: "{folderId}"
+  googleDocs:
+    jobDescriptionTemplateId: "{jobDescriptionTemplateId}"
+
+future_apps_script_only_resources:
+  googleForms:
+    applicationFormTemplateId: "{applicationFormTemplateId}"
+
+rule:
+  - applicationFormTemplateId is not part of current MCP config
+  - applicationFormTemplateId is used by Apps Script downstream only
+  - do not add googleForms to MCP registration unless the backend config schema is
+    extended first
+
+backend_registration:
+  - Apps Script may display/copy this payload
+  - Apps Script may call backend registration only if endpoint already exists
+  - do not implement backend dynamic tenant loading in this Google Sheets/Apps Script task
+```
+
+## 7. Acceptance Criteria
+
+```yaml
+acceptance:
+  - empty workspace initialization creates all required resources
+  - second initialization creates no duplicates
+  - existing Sheet data remains unchanged
+  - missing columns are appended, not inserted before existing columns
+  - Config default keys exist
+  - Users contains adminEmail with role hr_admin
+  - Users header is exactly [email, role, mcpKeyHash, mcpKeyStatus, mcpKeyCreatedAt]
+  - rec_jobDesc header is exactly [id, titre, mgr, url, status]
+  - proc_state and proc_audit match current StorageAdapter headers (§7 exact_storage_headers)
+  - technical tabs are protected AND serviceAccountEmail is in every protection editor list
+  - employees + library tabs exist with the §4 headers; forbidden employee fields absent
+  - library is seeded with the two created templates (ai_usage=autofill)
+  - form contains the required questions incl. cv_upload; no forbidden candidate fields
+  - output contains current MCP config IDs: spreadsheetId, folderId, jobDescriptionTemplateId
+  - output may also contain Apps-Script-only IDs: applicationFormTemplateId
+  - Apps Script downstream tabs do not write to proc_state or proc_audit
+  - rec_publications, Applications, Activities are Apps Script-owned downstream tabs
+  - rec_jobDesc remains MCP-owned and keeps exact header [id, titre, mgr, url, status]
+  - post-init MCP smoke (submit→generate→approve) still writes rec_jobDesc + proc_* rows
+    (proves protections did not lock the service account out)
+
+key_addendum:
+  service_account_access:
+    priority: P0
+    rule: When serviceAccountEmail is provided, grant Editor access to:
+      - spreadsheet
+      - Drive folder
+      - job description template file
+      - application form template file
+      AND include it in every protection editor list (§0 protection_model).
+    reason: MCP cannot read Config/Users, write rec_jobDesc/proc_* tabs, or copy
+            templates without this.
+
+  idempotent_resource_reuse:
+    priority: P0
+    rule: initializeHrisWorkspace must reuse resources in this order:
+      - explicit input IDs
+      - DocumentProperties cached IDs
+      - create new resource
+    persist_in_document_properties:
+      - COMPANY_ID
+      - COMPANY_NAME
+      - FOLDER_ID
+      - JOB_DESCRIPTION_TEMPLATE_ID
+      - APPLICATION_FORM_TEMPLATE_ID
+      - SERVICE_ACCOUNT_EMAIL
+    must_not: store raw MCP API keys in Sheet cells
+
+  exact_storage_headers:
+    priority: P0
+    status: RESOLVED — these are the REAL columns serialized by the MCP code
+            (src/storage/sheetsStorageAdapter.ts, exported SHEETS_STORAGE_HEADERS).
+            Apps Script mirrors them as a constant with a keep-in-sync comment both ways.
+    proc_state:
+      - processInstanceId
+      - processId
+      - companyId
+      - currentStatus
+      - currentStep
+      - createdBy
+      - createdAt
+      - updatedAt
+      - lastToolCalled
+      - externalReferences
+      - auditLogId
+    proc_audit:
+      - auditLogId
+      - timestamp
+      - companyId
+      - processId
+      - processInstanceId
+      - toolName
+      - actorRole
+      - actorId
+      - inputSummary
+      - externalOutputs
+      - statusBefore
+      - statusAfter
+      - result
+      - errorCode
+
+  sheet_operations:
+    priority: P1
+    rule:
+      - detect tabs by name
+      - detect columns by header text
+      - header_mismatch_policy: RESOLVED — warn and leave intact, never overwrite or
+        auto-rename (mirrors scripts/setup-company-sheet.ts). Technical tabs are
+        protected, so their headers cannot drift in the first place; HR-editable tabs
+        that drift produce a warning naming the tab and the expected header.
+      - never rely on fixed column indexes for setup/upgrade
+      - append missing columns at the end only
+      - freeze row 1 on every created tab
+      - add dropdown validations for known roles/statuses where practical
+        (Users.role, Applications.status, employees.status, library.ai_usage)
+
+  application_form_template:
+    priority: P1
+    status: RESOLVED — required questions now include cv_upload (§3); structured
+            per-job questions are injected at copy time per job, never into the template.
+    rule:
+      - link form responses to the same spreadsheet
+      - raw response tab must be form_responses_raw
+      - job_process_id must be injected by prefilled link or later normalization,
+        not typed freely by candidate
+      - forbidden_questions remain as in §3
+
+  optional_backend_registration:
+    priority: P1
+    include_only_if_endpoint_exists: true
+    endpoint:
+      method: POST
+      path: /api/register
+      auth: "Authorization: Bearer <REGISTRATION_ADMIN_KEY>"
+    request:
+      companyId: string
+      companyName: string
+      sheetId: string
+      folderId: string
+      templateId: string
+      formTemplateId: string
+    validation:
+      companyId_regex: "^[a-z0-9-_]+$"
+      no_overwrite_existing_company_config: true
+    success_response:
+      apiKey: string
+      serviceAccountEmail: string
+    api_key_handling:
+      - display once or store in DocumentProperties only
+      - never write raw API key into spreadsheet cells
+
+  apps_script_manifest:
+    priority: P1
+    scopes:
+      - https://www.googleapis.com/auth/spreadsheets
+      - https://www.googleapis.com/auth/drive.file
+      - https://www.googleapis.com/auth/documents
+      - https://www.googleapis.com/auth/forms
+      - https://www.googleapis.com/auth/userinfo.email
+      - https://www.googleapis.com/auth/script.external_request  # only if backend registration call is implemented
+```
