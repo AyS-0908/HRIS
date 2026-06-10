@@ -25,6 +25,11 @@ service-account*.json
 config/company.*.yaml
 !config/company.example.yaml
 
+# clasp (Apps Script) — per-environment project link + credentials, never commit
+.clasp.json
+**/.clasp.json
+.clasprc.json
+
 # Build / OS
 dist/
 build/

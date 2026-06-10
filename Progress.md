@@ -1,6 +1,6 @@
 # Progress.md — MCP Custom Standard
 
-Last updated: 2026-06-08 · Branch: `main`
+Last updated: 2026-06-09 · Branch: `main`
 
 > Status board for a fresh agent. Authoritative acceptance = `SPEC.md` §15. History lives in
 > git + `STANDARD_CHANGELOG.md` — this file is **current state + next moves only**, kept short.
@@ -92,12 +92,52 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
 
 ## Now
 
-- `admin_user` beta role just landed (full HR-recruitment access, permissionScope as the single
-  authorization source, +5 tests). Gate green. Clean checkpoint on `main`.
-- Otherwise nothing in flight. Tracks A#1, A#2, the two guides, the beta-token path, and the
-  `admin_user` role are done.
+- **Apps Script Stage 1 BUILT + LIVE-VERIFIED via clasp (2026-06-10).**
+  `initializeHrisWorkspace` implemented in `apps-script/` (12 files: manifest, Code,
+  Config, Util, Properties, SheetSetup, Protection, DriveSetup, DocTemplate, FormTemplate,
+  Registration, README) per `docs/hris_appscript_spec_final.txt` §0–§7 and
+  `docs/implementation-plan-remaining.md` Stage 1. Creates ALL tabs (governance +
+  transversal `employees`/`library` + MCP-owned headers mirrored from
+  `SHEETS_STORAGE_HEADERS` + downstream), Drive folder, JD Doc template (7 placeholders),
+  application Form template (responses → `form_responses_raw`), FULL protections with the
+  service account in every editor list (P0), DocumentProperties id cache, and the §6
+  registration payload (display/copy only — no HTTP). **Ran live** on a throwaway bound
+  sheet via `clasp run` (see "Last verification"): all 10 tabs + frozen rows, exact
+  headers, protections list the SA, seeds correct, idempotent 2nd run (`tabsCreated: []`),
+  and the SA can WRITE through the protections on `rec_jobDesc`/`proc_state` (smoke proxy).
+  **Spec correction found live:** manifest needs full `drive` scope, not §7's `drive.file`
+  (`DriveApp.createFolder` fails under `drive.file`) — fixed in `apps-script/appsscript.json`
+  + noted in the README; spec §7 still says `drive.file` (left as-is — outside Stage 1
+  allowed paths). Two manual residuals: the "CV (PDF)" file-upload question can't be created
+  by API (init warns; operator adds it by hand), and the orphaned first-attempt test sheet
+  can be deleted from Drive. No `src/` changes; gate green (typecheck, 81 tests / 15 files,
+  check-standard).
+- **HRIS vision + Apps Script specs finalized, docs aligned (2026-06-09).** The repo is now
+  framed as the business brain of a larger HRIS product; recruitment = module 1 of N. Two
+  spec layers added: `docs/hris_macro_spec.md` (product macro spec v1.1, decisions locked)
+  and `docs/hris_appscript_spec_final.txt` (Apps Script workspace setup v2, all open `❗`
+  resolved). **Locked decisions:** one transversal spreadsheet per company (prefix convention
+  `rec_*`/`trn_*`…, shared tabs unprefixed); full protections with the **service-account email
+  in every protection editor list** (else MCP writes break); bound script first; CV collected
+  via a Google Forms file-upload question (V1.1 fallback: HtmlService web-app form, no
+  sign-in); `employees` + `library` transversal tabs created at init, module logic later.
+  Docs updated: AGENTS.md (boundary + SA-protection gotcha), Architecture.md (Apps Script
+  layer + sheet structure), README, developer-guide §7, onboarding-company §1.3. No code
+  changes — MCP behavior untouched.
 
 ## Next — remaining backlog
+
+(Stage sequencing lives in `docs/implementation-plan-remaining.md` — one stage per run.)
+
+- **OPERATOR (Stage 1 follow-ups, non-blocking):** when installing on the REAL company sheet,
+  add the "CV (PDF)" file-upload question to the Form template by hand (API can't create it),
+  and run the full MCP `submit → generate → approve` against that sheet to confirm end-to-end
+  (the protection-write property is already proven). Optionally delete the orphaned test sheet
+  `1EA-ztezdWohqZDvJ1IupsushI9Tf7j0LAhosJZlkLgY` + the "Clasp Test" sheet from Drive.
+- **Stage 2 (next to build):** Apps Script downstream recruitment
+  (`docs/hris_appscript_spec_final.txt` §1 `apps_script_owns` + §4 downstream tabs) — read
+  `rec_jobDesc` where `status="approved"`, per-job Form copies, normalize into
+  `Applications`, `rec_publications` prep, `Activities` log. Propose the trigger model first.
 
 - **D4:** future publish/diffusion module + candidate sub-process (`update_candidate_status`) as
   separate MCP modules — first real exercises of the module-creation playbook.
@@ -148,6 +188,38 @@ multi-user: the runtime serializes same-instance contenders via an in-process `L
 
 ## Last verification
 
+- **2026-06-10 — Apps Script Stage 1 LIVE via clasp (fresh-sheet acceptance + smoke proxy).**
+  Pushed the 11 files to a bound throwaway sheet with `clasp` (GCP project `hris-499007`,
+  Desktop OAuth client, login `--extra-scopes` spreadsheets/documents/forms/drive; manifest
+  `executionApi.access=MYSELF` added only for the run, then reverted) and ran
+  `initializeHrisWorkspace`. Results, read back via the service account:
+  • **all 10 tabs created**, every one frozen row 1 (`Config, Users, employees, library,
+  rec_jobDesc, proc_state, proc_audit, rec_publications, Applications, Activities`) +
+  `form_responses_raw` from the Form destination.
+  • **Headers exact** — `rec_jobDesc=[id,titre,mgr,url,status]`; `proc_state`/`proc_audit`
+  byte-identical to `SHEETS_STORAGE_HEADERS`; Users 5-col; employees/library/downstream per §4.
+  • **Seeds** — Config 5 keys (Sheets coerces `false`→`FALSE`; harmless, `parseBool` lowercases),
+  Users admin row `hr_admin`, library 2 template rows `ai_usage=autofill`.
+  • **Protections** — `rec_jobDesc`/`proc_state`/`proc_audit` (whole-sheet) + Users
+  `mcpKeyHash`/`mcpKeyStatus`/`mcpKeyCreatedAt` (columns) each list **operator + service
+  account** (SA present on every one).
+  • **Idempotency** — 2nd run `tabsCreated: []`, `tabsUpdated: []`, reused template/folder ids.
+  • **Smoke proxy (P0)** — the service account successfully APPENDED a row through the
+  protection on both `rec_jobDesc` and `proc_state` (then cleaned up) ⇒ protections did not
+  lock the SA out, the exact risk the post-init MCP smoke guards. (Full MCP-server
+  submit→generate→approve against this disposable sheet not run — proven property is the
+  protection write.)
+  • **Bug fixed live** — `drive.file` → full `drive` in the manifest (`DriveApp.createFolder`
+  needs it). Only warning across runs: the documented "CV (PDF)" file-upload (API can't create).
+  Repo gate green before+after (typecheck, 81 tests / 15 files, check-standard).
+- **2026-06-09 — Apps Script Stage 1 (`initializeHrisWorkspace`) built.** New `apps-script/`
+  folder only (no `src/` changes). Static self-review walked every spec §7 acceptance item
+  against the code (proc_state/proc_audit headers byte-identical to `SHEETS_STORAGE_HEADERS`
+  with keep-in-sync comments; protections editors = operator + SA; reuse order input →
+  DocumentProperties → create; headers-if-empty / append-at-end-only / warn-never-overwrite).
+  Gate green before AND after: `npm run typecheck`, `npm test` (81 tests / 15 files),
+  `npm run check-standard`. **Pending: operator manual checklist + post-init MCP smoke**
+  (`apps-script/README.md`) before Stage 1 counts as done.
 - **2026-06-08 — `admin_user` beta role.** Added the role to `company.acme.yaml`,
   `company.example.yaml`, and both `tests/fixtures/company.docs-*.yaml` (loader requires every
   module-referenced role to be declared). Updated `recruitmentPermissions` (submit/approve add
